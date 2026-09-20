@@ -1,18 +1,18 @@
 /**
- * AMPED-02C - D1 event and line-up persistence.
+ * AMPED-02C - D1 event and line-up persistence (AMPED-03A: fixture layer gone).
  *
- * tests/services.test.ts is the protected contract file and is deliberately
- * untouched; this file carries the persistence-specific evidence:
+ * The fixture implementation was retired in AMPED-03A, so this file no longer
+ * compares D1 against fixtures. It asserts the same contract directly from the
+ * real database:
  *
- *  - the D1 EventView is field-for-field the mock EventView;
+ *  - public listings, by-slug reads and on-sale reads behave correctly;
  *  - drafts and archived rows cannot leave the public service (enforced in
  *    SQL, with the statement text asserted);
  *  - past/upcoming follows hasFinished()/curfew semantics, not the status;
  *  - line-up order is the operator's running order, never alphabetical;
  *  - the projection is batched, so query count does not scale with events;
- *  - ArtistService.eventsFor() is D1-backed when DB is bound;
- *  - getServices() selection and caching behave for the bound and unbound
- *    cases without wedging a module instance.
+ *  - ArtistService.eventsFor() is D1-backed;
+ *  - getServices() selection and caching are safe for a bound database.
  *
  * Everything here runs against a throwaway, migrated and seeded local D1
  * database. No developer database and no remote resource is touched.
@@ -23,36 +23,20 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { applySeed } from '../src/db/seed.ts';
 import { migrate } from '../src/db/migrations.ts';
 import { openEphemeralDatabase } from '../src/db/local.ts';
-import { createServices, getServices } from '../src/services/index.ts';
+import { createServices } from '../src/services/index.ts';
 import { createD1EventRepository } from '../src/services/d1/events.ts';
 import { createD1ArtistService } from '../src/services/d1/artists.ts';
 import { createD1VenueService } from '../src/services/d1/venues.ts';
 import type {
   ArtistService,
   PublicEventService,
+  Services,
   VenueService,
 } from '../src/services/contracts.ts';
 import type { EventView } from '../src/types/view.ts';
 
 // Migrating and seeding a Wrangler runtime takes longer than the default budget.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
-
-const services = getServices();
-
-/**
- * Drop the timestamp fields that the fixture clock and the seed read
- * independently ("now" at two different moments). Everything else must match.
- */
-function normalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalize);
-  if (value === null || typeof value !== 'object') return value;
-  const out: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (key === 'createdAt' || key === 'updatedAt' || key === 'uploadedAt') continue;
-    out[key] = normalize(child);
-  }
-  return out;
-}
 
 /** A D1Database that records the SQL text of every prepared statement. */
 function instrument(db: D1Database): { db: D1Database; queries: string[] } {
@@ -79,6 +63,7 @@ type ProbeStatus = 'draft' | 'published' | 'postponed' | 'cancelled' | 'complete
 describe('AMPED-02C event and line-up persistence', () => {
   let database: Awaited<ReturnType<typeof openEphemeralDatabase>>;
   let db: D1Database;
+  let services: Services;
   let repository: PublicEventService & { eventsFor(artistId: string): Promise<EventView[]> };
   let d1Artists: ArtistService;
   let d1Venues: VenueService;
@@ -90,6 +75,7 @@ describe('AMPED-02C event and line-up persistence', () => {
     await migrate(db);
     await applySeed(db);
 
+    services = createServices(db);
     repository = createD1EventRepository(db);
     d1Artists = createD1ArtistService(db, repository);
     d1Venues = createD1VenueService(db);
@@ -175,47 +161,65 @@ describe('AMPED-02C event and line-up persistence', () => {
   }
 
   // -------------------------------------------------------------------------
-  // Projection parity
+  // Public listings
   // -------------------------------------------------------------------------
 
-  it('projects the upcoming list exactly like the mock EventView', async () => {
-    const fromD1 = await repository.listUpcoming();
-    const mock = await services.events.listUpcoming();
+  it('lists upcoming events soonest first, with canonical public hrefs', async () => {
+    const upcoming = await repository.listUpcoming();
+    expect(upcoming.length).toBeGreaterThan(0);
 
-    expect(fromD1.map((e) => e.id)).toEqual(mock.map((e) => e.id));
-    expect(normalize(fromD1)).toEqual(normalize(mock));
+    const times = upcoming.map((event) => Date.parse(event.startsAt));
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+
+    for (const event of upcoming) {
+      expect(event.isPast).toBe(false);
+      expect(event.href).toBe(`/gigs/${event.slug}`);
+      expect(event.status).not.toBe('draft');
+      expect(event.status).not.toBe('archived');
+    }
   });
 
-  it('projects the past list exactly like the mock EventView', async () => {
-    const fromD1 = await repository.listPast();
-    const mock = await services.events.listPast();
+  it('lists past events most recent first, with archive hrefs', async () => {
+    const past = await repository.listPast();
+    expect(past.length).toBeGreaterThan(0);
 
-    expect(fromD1.map((e) => e.id)).toEqual(mock.map((e) => e.id));
-    expect(normalize(fromD1)).toEqual(normalize(mock));
+    const times = past.map((event) => Date.parse(event.startsAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+
+    for (const event of past) {
+      expect(event.isPast).toBe(true);
+      expect(event.href).toBe(`/past-gigs/${event.slug}`);
+    }
   });
 
-  it('projects the on-sale list and next event exactly like the mock', async () => {
-    expect(normalize(await repository.listOnSale())).toEqual(
-      normalize(await services.events.listOnSale()),
-    );
-    expect(normalize(await repository.nextEvent())).toEqual(
-      normalize(await services.events.nextEvent()),
-    );
-  });
+  it('offers only genuinely upcoming, ticketed events on sale', async () => {
+    const onSale = await repository.listOnSale();
+    const upcoming = await repository.listUpcoming();
+    const upcomingIds = new Set(upcoming.map((event) => event.id));
 
-  it('projects getBySlug exactly like the mock for every public slug', async () => {
-    const slugs = (await services.events.listPublicSlugs()).map((entry) => entry.slug);
-    expect(slugs.length).toBeGreaterThan(0);
-
-    for (const slug of slugs) {
-      const fromD1 = await repository.getBySlug(slug);
-      const mock = await services.events.getBySlug(slug);
-      expect(fromD1, slug).not.toBeNull();
-      expect(normalize(fromD1), slug).toEqual(normalize(mock));
+    expect(onSale.length).toBeGreaterThan(0);
+    for (const event of onSale) {
+      expect(event.isPast).toBe(false);
+      expect(event.ticketTypes.length).toBeGreaterThan(0);
+      expect(upcomingIds.has(event.id)).toBe(true);
     }
 
-    expect(new Set((await repository.listPublicSlugs()).map((entry) => entry.slug))).toEqual(
-      new Set(slugs),
+    const next = await repository.nextEvent();
+    expect(next).not.toBeNull();
+    expect(next?.id).toBe(upcoming[0]?.id);
+  });
+
+  it('resolves every public slug, and only those', async () => {
+    const slugs = await repository.listPublicSlugs();
+    expect(slugs.length).toBeGreaterThan(0);
+
+    for (const { slug } of slugs) {
+      const bySlug = await repository.getBySlug(slug);
+      expect(bySlug, slug).not.toBeNull();
+    }
+
+    expect(new Set((await services.events.listPublicSlugs()).map((entry) => entry.slug))).toEqual(
+      new Set(slugs.map((entry) => entry.slug)),
     );
   });
 
@@ -272,9 +276,7 @@ describe('AMPED-02C event and line-up persistence', () => {
     const eventsQueries = queries.filter((sql) => /from events\b/.test(sql));
     expect(eventsQueries.length).toBeGreaterThan(0);
     for (const sql of eventsQueries) {
-      expect(sql).toMatch(
-        /status in \('published', 'postponed', 'cancelled', 'completed'\)/,
-      );
+      expect(sql).toMatch(/status in \('published', 'postponed', 'cancelled', 'completed'\)/);
     }
   });
 
@@ -369,7 +371,10 @@ describe('AMPED-02C event and line-up persistence', () => {
   it('formats a British Summer Time instant in Europe/London', async () => {
     const now = new Date('2026-07-01T20:00:00.000Z');
     const fixed = createD1EventRepository(db, () => now);
-    const probe = await insertProbeEvent({ startsAt: now.toISOString(), endsAt: at(now, 3 * 3_600_000) });
+    const probe = await insertProbeEvent({
+      startsAt: now.toISOString(),
+      endsAt: at(now, 3 * 3_600_000),
+    });
 
     try {
       const view = await fixed.getBySlug(probe.slug);
@@ -413,11 +418,7 @@ describe('AMPED-02C event and line-up persistence', () => {
         'art_mara_veil',
         'art_ledger',
       ]);
-      expect(view?.lineup.map((entry) => entry.billing)).toEqual([
-        'headline',
-        'support',
-        'opener',
-      ]);
+      expect(view?.lineup.map((entry) => entry.billing)).toEqual(['headline', 'support', 'opener']);
       expect(view?.lineup[1]?.billingNote).toBe('Solo set');
     } finally {
       await deleteProbeEvent(probe.id);
@@ -474,11 +475,10 @@ describe('AMPED-02C event and line-up persistence', () => {
     expect(gallery?.gallery.every((asset) => asset.alt.length > 0)).toBe(true);
   });
 
-  it('presents absent optionals the way the mock EventView does', async () => {
+  it('presents absent optionals with the keys present and undefined', async () => {
     const view = await repository.getBySlug('paper-lions-the-cellar');
     expect(view).not.toBeNull();
 
-    // Keys are present with an undefined value, exactly as the mock produces.
     expect('photography' in (view as object)).toBe(true);
     expect(view?.photography).toBeUndefined();
     expect('heroUrl' in (view as object)).toBe(true);
@@ -538,15 +538,14 @@ describe('AMPED-02C event and line-up persistence', () => {
   // Service selection
   // -------------------------------------------------------------------------
 
-  it('keeps ArtistService.eventsFor() on the D1 event data when DB is bound', async () => {
-    const d1Events = await d1Artists.eventsFor('art_mara_veil');
-    const mockEvents = await services.artists.eventsFor('art_mara_veil');
+  it('keeps ArtistService.eventsFor() on the D1 event data', async () => {
+    const seeded = await d1Artists.eventsFor('art_mara_veil');
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const event of seeded) {
+      expect(event.lineup.some((entry) => entry.artist.id === 'art_mara_veil')).toBe(true);
+    }
 
-    expect(d1Events.length).toBeGreaterThan(0);
-    expect(normalize(d1Events)).toEqual(normalize(mockEvents));
-
-    // A new D1 event with Mara Veil on the bill is visible through eventsFor(),
-    // which fixture data cannot be.
+    // A new D1 event with Mara Veil on the bill is visible through eventsFor().
     const startsAt = new Date(Date.now() + 11 * 86_400_000).toISOString();
     const probe = await insertProbeEvent({ startsAt });
     await insertLineup(probe.id, [{ artistId: 'art_mara_veil', position: 0 }]);
@@ -554,7 +553,6 @@ describe('AMPED-02C event and line-up persistence', () => {
     try {
       const withProbe = await d1Artists.eventsFor('art_mara_veil');
       expect(withProbe.some((event) => event.id === probe.id)).toBe(true);
-      expect(mockEvents.some((event) => event.id === probe.id)).toBe(false);
     } finally {
       await deleteProbeEvent(probe.id);
     }
@@ -562,53 +560,34 @@ describe('AMPED-02C event and line-up persistence', () => {
 
   it('keeps the accepted VenueService and ArtistService D1-backed', async () => {
     expect((await d1Venues.getBySlug('the-lomax-rooms'))?.name).toBe('The Lomax Rooms');
-    expect((await d1Artists.list()).length).toBe((await services.artists.list()).length);
+    expect(await d1Artists.list()).toHaveLength(10);
     expect((await d1Artists.getBySlug('the-glass-hearts'))?.id).toBe('art_glass_hearts');
   });
 
-  it('selects D1 events and leaves unrelated services mocked', async () => {
-    const bound = createServices(db);
-    const unbound = createServices(undefined);
+  it('assembles every service against D1 and reads the seeded rows', async () => {
+    const probeStartsAt = new Date(Date.now() + 12 * 86_400_000).toISOString();
+    const probe = await insertProbeEvent({ startsAt: probeStartsAt });
 
-    expect((await bound.events.listUpcoming()).map((e) => e.id)).toEqual(
-      (await unbound.events.listUpcoming()).map((e) => e.id),
-    );
-
-    // The event service is D1-backed: a probe event exists only in D1.
-    const startsAt = new Date(Date.now() + 12 * 86_400_000).toISOString();
-    const probe = await insertProbeEvent({ startsAt });
     try {
-      expect((await bound.events.listUpcoming()).some((e) => e.id === probe.id)).toBe(true);
-      expect((await unbound.events.listUpcoming()).some((e) => e.id === probe.id)).toBe(false);
+      expect((await services.events.listUpcoming()).some((e) => e.id === probe.id)).toBe(true);
+      expect((await services.admin.listAll()).some((e) => e.id === probe.id)).toBe(true);
+      expect((await services.admin.getById(probe.id))?.id).toBe(probe.id);
+      expect((await services.door.listDoorEvents()).length).toBeGreaterThan(0);
     } finally {
       await deleteProbeEvent(probe.id);
     }
 
-    expect((await bound.admin.listAll()).map((e) => e.id)).toEqual(
-      (await unbound.admin.listAll()).map((e) => e.id),
-    );
-    expect((await bound.media.get('med_og_default'))?.url).toBe(
-      (await unbound.media.get('med_og_default'))?.url,
-    );
-    expect((await bound.social.listFeatured()).map((s) => s.post.id)).toEqual(
-      (await unbound.social.listFeatured()).map((s) => s.post.id),
-    );
-    expect((await bound.orders.listRecent(5)).map((o) => o.order.id)).toEqual(
-      (await unbound.orders.listRecent(5)).map((o) => o.order.id),
-    );
-    expect((await bound.enquiries.list()).map((e) => e.enquiry.id)).toEqual(
-      (await unbound.enquiries.list()).map((e) => e.enquiry.id),
-    );
-    expect(await bound.mailingList.counts()).toEqual(await unbound.mailingList.counts());
-    expect((await bound.audit.listRecent(3)).map((a) => a.action)).toEqual(
-      (await unbound.audit.listRecent(3)).map((a) => a.action),
-    );
+    expect(await services.artists.list()).toHaveLength(10);
+    expect(await services.venues.list()).toHaveLength(4);
+    expect(await services.media.get('med_og_default')).not.toBeNull();
+    expect((await services.social.listFeatured()).length).toBeGreaterThan(0);
+    expect((await services.orders.listRecent(5)).length).toBeGreaterThan(0);
+    expect((await services.enquiries.list()).length).toBeGreaterThan(0);
+    expect((await services.mailingList.counts()).subscribed).toBeGreaterThan(0);
+    expect((await services.audit.listRecent(3)).length).toBe(3);
   });
 
-  it('getServices() picks D1 events when the runtime exposes DB, and caches per module instance', async () => {
-    // Unbound module instance (ordinary Node/Vitest) is the fixture set.
-    expect(services.events).toBeDefined();
-
+  it('getServices() picks D1 when the runtime exposes DB, and caches per module instance', async () => {
     vi.resetModules();
     vi.doMock('cloudflare:workers', () => ({ env: { DB: db } }));
     try {
@@ -616,12 +595,12 @@ describe('AMPED-02C event and line-up persistence', () => {
       const bound = fresh.getServices();
       // Cached: the same instance is returned on a second call.
       expect(fresh.getServices()).toBe(bound);
+      expect(fresh.isScaffoldData()).toBe(false);
 
       const startsAt = new Date(Date.now() + 13 * 86_400_000).toISOString();
       const probe = await insertProbeEvent({ startsAt });
       try {
         expect((await bound.events.listUpcoming()).some((e) => e.id === probe.id)).toBe(true);
-        expect((await services.events.listUpcoming()).some((e) => e.id === probe.id)).toBe(false);
       } finally {
         await deleteProbeEvent(probe.id);
       }
@@ -632,7 +611,7 @@ describe('AMPED-02C event and line-up persistence', () => {
   });
 });
 
-/** Small helper kept local to this file; mirrors the fixture's +offset clock. */
+/** Small helper kept local to this file. */
 function at(base: Date, offsetMs: number): string {
   return new Date(base.getTime() + offsetMs).toISOString();
 }

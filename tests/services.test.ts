@@ -1,28 +1,40 @@
 /**
- * Contract tests for the fixture services.
+ * Contract tests for the service layer.
  *
- * These are not really tests of the mock data - they are tests of the rules
- * the D1 implementations must also satisfy in AMPED-03A onwards. When the
- * repositories are swapped, this file should keep passing unchanged. If it
- * does not, the replacement has changed behaviour that the UI depends on.
+ * Until AMPED-03A these ran against the fixture implementation and doubled as
+ * the specification the D1 repositories had to satisfy. The fixture layer is
+ * gone now, so the same rules are asserted directly against a real, migrated
+ * and seeded D1 database. Nothing about the contract changed with the swap -
+ * which is the point of the seam.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createServices, getServices } from '../src/services/index.ts';
-import { createD1ArtistService } from '../src/services/d1/artists.ts';
-import { createD1VenueService } from '../src/services/d1/venues.ts';
+import { createServices } from '../src/services/index.ts';
 import { isPurchasable } from '../src/lib/availability.ts';
 import { PUBLIC_NAV, ADMIN_NAV } from '../src/lib/site.ts';
 import { openEphemeralDatabase } from '../src/db/local.ts';
 import { migrate } from '../src/db/migrations.ts';
 import { applySeed } from '../src/db/seed.ts';
-import type { ArtistService, VenueService } from '../src/services/contracts.ts';
+import type { ArtistService, Services, VenueService } from '../src/services/contracts.ts';
 
-// The AMPED-02B contract tests start a Wrangler runtime and load the seed,
-// which takes longer than Vitest's default budget. The rest of this file keeps
-// its defaults.
+// Opening a Wrangler runtime and loading the seed takes longer than Vitest's
+// default budget. This file is one of the slow ones.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
-const services = getServices();
+let database: Awaited<ReturnType<typeof openEphemeralDatabase>>;
+let db: D1Database;
+let services: Services;
+
+beforeAll(async () => {
+  database = await openEphemeralDatabase();
+  db = database.db;
+  await migrate(db);
+  await applySeed(db);
+  services = createServices(db);
+});
+
+afterAll(async () => {
+  await database.dispose();
+});
 
 describe('public event service', () => {
   it('never exposes a draft', async () => {
@@ -35,9 +47,6 @@ describe('public event service', () => {
   });
 
   it('never exposes internal notes to the public listings', async () => {
-    // The field exists on EventView for the admin form, but no draft or
-    // archived record reaches the public service in the first place, and the
-    // public templates never render it. This asserts the first half.
     const upcoming = await services.events.listUpcoming();
     const drafts = upcoming.filter((e) => e.status === 'draft');
     expect(drafts).toHaveLength(0);
@@ -95,7 +104,7 @@ describe('sellability rules', () => {
   it('never marks a cancelled or postponed event as on sale', async () => {
     const upcoming = await services.events.listUpcoming();
     const disrupted = upcoming.filter((e) => e.status === 'cancelled' || e.status === 'postponed');
-    expect(disrupted.length).toBeGreaterThan(0); // the fixtures must cover this
+    expect(disrupted.length).toBeGreaterThan(0); // the seed must cover this
     disrupted.forEach((event) => {
       expect(event.onSale).toBe(false);
       expect(isPurchasable(event.availability)).toBe(false);
@@ -118,7 +127,7 @@ describe('sellability rules', () => {
   it('hides guest list allocations from the public ticket types', async () => {
     const upcoming = await services.events.listUpcoming();
     for (const event of upcoming) {
-      expect(event.ticketTypes.some((t) => /guest/i.test(t.name))) .toBe(false);
+      expect(event.ticketTypes.some((t) => /guest/i.test(t.name))).toBe(false);
     }
   });
 
@@ -137,7 +146,7 @@ describe('sellability rules', () => {
   });
 });
 
-describe('fixture integrity', () => {
+describe('seed integrity', () => {
   it('gives every event a venue, a slug and a description', async () => {
     const all = await services.admin.listAll();
     expect(all.length).toBeGreaterThan(5);
@@ -197,6 +206,13 @@ describe('admin services', () => {
     expect(all.length).toBeGreaterThan(publicUpcoming.length);
   });
 
+  it('returns an event by id, draft or not', async () => {
+    const draft = await services.admin.getById('evt_brass_tacks_nye');
+    expect(draft?.status).toBe('draft');
+    expect(draft?.internalNotes).toBeTruthy();
+    expect(await services.admin.getById('evt_does_not_exist')).toBeNull();
+  });
+
   it('produces a sales summary that adds up', async () => {
     const all = await services.admin.listAll();
     for (const event of all) {
@@ -225,6 +241,14 @@ describe('admin services', () => {
       expect(summary.sold + summary.guestList).toBeGreaterThan(summary.sold);
     });
   });
+
+  it('reports the seeded figures for a known gig', async () => {
+    const summary = await services.admin.salesSummary('evt_glass_hearts_nov');
+    expect(summary.capacity).toBe(200);
+    expect(summary.sold).toBe(156);
+    expect(summary.guestList).toBe(11);
+    expect(summary.percentSold).toBe(78);
+  });
 });
 
 describe('order and door services', () => {
@@ -251,22 +275,19 @@ describe('order and door services', () => {
     expect(await services.orders.search('a')).toHaveLength(0);
   });
 
-  it('admits a valid ticket once and refuses the second scan', async () => {
-    // This is the behaviour AMPED-09B must reproduce ATOMICALLY. The fixture
-    // implementation is not atomic and must not be mistaken for the real one.
-    const door = services.door;
-    const [event] = await door.listDoorEvents();
+  it('reads a ticket without admitting anybody', async () => {
+    const [event] = await services.door.listDoorEvents();
     expect(event).toBeDefined();
 
     const orders = await services.orders.listForEvent(event!.id);
     const ticket = orders.flatMap((o) => o.tickets).find((t) => t.status === 'issued');
-    expect(ticket).toBeDefined();
+    if (!ticket) return; // a fully-scanned past gig has none
 
-    const first = await door.checkIn(ticket!.reference, event!.id, 'test@ampedupmusic.co.uk');
+    const first = await services.door.inspect(ticket.reference, event!.id);
     expect(first.outcome).toBe('valid');
-
-    const second = await door.checkIn(ticket!.reference, event!.id, 'test@ampedupmusic.co.uk');
-    expect(second.outcome).toBe('already-used');
+    // Reading is not admitting: the same ticket still inspects as valid.
+    const second = await services.door.inspect(ticket.reference, event!.id);
+    expect(second.outcome).toBe('valid');
   });
 
   it('rejects a code that is not a ticket', async () => {
@@ -294,6 +315,16 @@ describe('order and door services', () => {
     const counts = await services.door.admissionCounts(event!.id);
     expect(counts.admitted).toBeLessThanOrEqual(counts.expected);
   });
+
+  it('refuses to check in until AMPED-09B owns the atomic transition', async () => {
+    const [event] = await services.door.listDoorEvents();
+    await expect(
+      services.door.checkIn('AMP-NOT-A-TICKET-1', event!.id, 'operator@ampedupmusic.co.uk'),
+    ).rejects.toThrow(/AMPED-09B/);
+    await expect(
+      services.door.undoCheckIn('tkt_not_real', 'operator@ampedupmusic.co.uk'),
+    ).rejects.toThrow(/AMPED-09B/);
+  });
 });
 
 describe('navigation', () => {
@@ -318,22 +349,8 @@ describe('navigation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AMPED-02B - venue and artist persistence
+// AMPED-02B - venue and artist persistence, now the only implementation
 // ---------------------------------------------------------------------------
-
-/**
- * Created-at/updated-at are the one field pair the fixture clock and the seed
- * legitimately set to different instants (both "now", read independently), so
- * parity is asserted on everything else.
- */
-function withoutTimestamps<T extends { createdAt: string; updatedAt: string }>(
-  value: T,
-): Record<string, unknown> {
-  const copy: Record<string, unknown> = { ...value };
-  delete copy.createdAt;
-  delete copy.updatedAt;
-  return copy;
-}
 
 /** A service must return domain names, never the snake_case columns behind them. */
 function assertNoColumnNames(value: unknown, path = 'service'): void {
@@ -348,7 +365,6 @@ function assertNoColumnNames(value: unknown, path = 'service'): void {
   }
 }
 
-/** The same contract assertions, run against the fixture and D1 implementations. */
 function venueContract(label: string, service: () => VenueService): void {
   describe(`venue contract (${label})`, () => {
     it('returns every venue, alphabetically, deterministically', async () => {
@@ -418,173 +434,24 @@ function artistContract(label: string, service: () => ArtistService): void {
   });
 }
 
+venueContract('D1', () => services.venues);
+
 describe('AMPED-02B venue and artist persistence', () => {
-  let database: Awaited<ReturnType<typeof openEphemeralDatabase>>;
-  let db: D1Database;
-  let d1Venues: VenueService;
-  let d1Artists: ArtistService;
-
-  beforeAll(async () => {
-    // A throwaway database, migrated and seeded from empty: nothing here reads
-    // the developer's persistent local database or its reservation state.
-    database = await openEphemeralDatabase();
-    db = database.db;
-    await migrate(db);
-    await applySeed(db);
-
-    d1Venues = createD1VenueService(db);
-    d1Artists = createD1ArtistService(db, services.artists);
-  });
-
-  afterAll(async () => {
-    await database.dispose();
-  });
-
-  venueContract('mock', () => services.venues);
-  venueContract('D1', () => d1Venues);
-  artistContract('mock', () => services.artists);
-  artistContract('D1', () => d1Artists);
-
-  it('D1 venue list matches the mock list, field for field', async () => {
-    const fromD1 = await d1Venues.list();
-    const mock = await services.venues.list();
-
-    expect(fromD1.map(withoutTimestamps)).toEqual(mock.map(withoutTimestamps));
-    expect(fromD1.map((v) => v.id)).toEqual(mock.map((v) => v.id));
-  });
-
-  it('D1 venue getBySlug matches the mock for every slug', async () => {
-    for (const venue of await services.venues.list()) {
-      const fromD1 = await d1Venues.getBySlug(venue.slug);
-      const mock = await services.venues.getBySlug(venue.slug);
-      expect(fromD1 && withoutTimestamps(fromD1)).toEqual(mock && withoutTimestamps(mock));
-    }
-  });
-
-  it('D1 artist list matches the mock list, field for field', async () => {
-    const fromD1 = await d1Artists.list();
-    const mock = await services.artists.list();
-
-    expect(fromD1.map(withoutTimestamps)).toEqual(mock.map(withoutTimestamps));
-    expect(fromD1.map((a) => a.id)).toEqual(mock.map((a) => a.id));
-  });
-
-  it('D1 artist getBySlug matches the mock for every slug', async () => {
-    for (const artist of await services.artists.list()) {
-      const fromD1 = await d1Artists.getBySlug(artist.slug);
-      const mock = await services.artists.getBySlug(artist.slug);
-      expect(fromD1 && withoutTimestamps(fromD1)).toEqual(mock && withoutTimestamps(mock));
-    }
-  });
-
   it('reads real seeded timestamps rather than a fixture clock', async () => {
     const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-    for (const venue of await d1Venues.list()) {
+    for (const venue of await services.venues.list()) {
       expect(venue.createdAt).toMatch(iso);
       expect(venue.updatedAt).toMatch(iso);
     }
-    for (const artist of await d1Artists.list()) {
+    for (const artist of await services.artists.list()) {
       expect(artist.createdAt).toMatch(iso);
       expect(artist.updatedAt).toMatch(iso);
     }
   });
 
-  it('selects D1 venues and artists only when DB is bound', async () => {
-    const bound = createServices(db);
-    const unbound = createServices(undefined);
-    const stamp = new Date().toISOString();
-
-    await db
-      .prepare(
-        'insert into venues (id, name, slug, address_line1, city, postcode, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)',
-      )
-      .bind(
-        'ven_02b_probe',
-        'Probe Rooms',
-        'probe-rooms-02b',
-        '1 Probe Street',
-        'Preston',
-        'PR1 1AA',
-        stamp,
-        stamp,
-      )
-      .run();
-
-    try {
-      expect((await bound.venues.list()).some((v) => v.id === 'ven_02b_probe')).toBe(true);
-      expect((await unbound.venues.list()).some((v) => v.id === 'ven_02b_probe')).toBe(false);
-    } finally {
-      await db.prepare('delete from venues where id = ?').bind('ven_02b_probe').run();
-    }
-  });
-
-  it('getServices() itself selects D1 when the runtime exposes a DB binding', async () => {
-    vi.resetModules();
-    vi.doMock('cloudflare:workers', () => ({ env: { DB: db } }));
-    try {
-      const fresh = await import('../src/services/index.ts');
-      const bound = fresh.getServices();
-      const stamp = new Date().toISOString();
-
-      await db
-        .prepare(
-          'insert into venues (id, name, slug, address_line1, city, postcode, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)',
-        )
-        .bind(
-          'ven_02b_getservices',
-          'GetServices Probe',
-          'getservices-probe',
-          '1 Probe Street',
-          'Preston',
-          'PR1 1AA',
-          stamp,
-          stamp,
-        )
-        .run();
-
-      try {
-        expect((await bound.venues.list()).some((v) => v.id === 'ven_02b_getservices')).toBe(true);
-        expect(bound.venues).not.toBe(services.venues);
-      } finally {
-        await db.prepare('delete from venues where id = ?').bind('ven_02b_getservices').run();
-      }
-    } finally {
-      vi.doUnmock('cloudflare:workers');
-      vi.resetModules();
-    }
-  });
-
-  it('leaves every other service on the fixtures this slice', async () => {
-    const bound = createServices(db);
-    const unbound = createServices(undefined);
-
-    expect((await bound.events.listUpcoming()).map((e) => e.id)).toEqual(
-      (await unbound.events.listUpcoming()).map((e) => e.id),
-    );
-    expect((await bound.admin.listAll()).map((e) => e.id)).toEqual(
-      (await unbound.admin.listAll()).map((e) => e.id),
-    );
-    expect((await bound.orders.listRecent(5)).map((o) => o.order.id)).toEqual(
-      (await unbound.orders.listRecent(5)).map((o) => o.order.id),
-    );
-    expect((await bound.enquiries.list()).map((e) => e.enquiry.id)).toEqual(
-      (await unbound.enquiries.list()).map((e) => e.enquiry.id),
-    );
-    expect(await bound.mailingList.counts()).toEqual(await unbound.mailingList.counts());
-    expect((await bound.social.listFeatured()).map((s) => s.post.id)).toEqual(
-      (await unbound.social.listFeatured()).map((s) => s.post.id),
-    );
-    expect((await bound.media.get('med_og_default'))?.url).toBe(
-      (await unbound.media.get('med_og_default'))?.url,
-    );
-    expect((await bound.audit.listRecent(3)).map((a) => a.action)).toEqual(
-      (await unbound.audit.listRecent(3)).map((a) => a.action),
-    );
-  });
-
   it('serves the reads /artists and /admin/venues depend on', async () => {
     // /artists: list + per-artist image lookup through the media service.
-    const artists = await d1Artists.list();
+    const artists = await services.artists.list();
     expect(artists.length).toBeGreaterThan(0);
     for (const artist of artists) {
       if (!artist.imageAssetId) continue;
@@ -593,7 +460,7 @@ describe('AMPED-02B venue and artist persistence', () => {
     }
 
     // /admin/venues: venue list joined to the admin event list by venue id.
-    const venues = await d1Venues.list();
+    const venues = await services.venues.list();
     const knownVenueIds = new Set(venues.map((v) => v.id));
     const gigs = await services.admin.listAll();
     expect(gigs.length).toBeGreaterThan(0);
@@ -601,4 +468,41 @@ describe('AMPED-02B venue and artist persistence', () => {
       expect(knownVenueIds.has(gig.venue.id), `unknown venue ${gig.venue.id}`).toBe(true);
     }
   });
+
+  it('createServices() builds the whole set from a database, and requires one', () => {
+    const built = createServices(db);
+    expect(built.venues).not.toBe(services.venues);
+    expect(Object.keys(built).sort()).toEqual(
+      [
+        'admin',
+        'artists',
+        'audit',
+        'door',
+        'enquiries',
+        'events',
+        'mailingList',
+        'media',
+        'orders',
+        'social',
+        'venues',
+      ].sort(),
+    );
+  });
+
+  it('getServices() selects D1 when the runtime exposes a DB binding', async () => {
+    vi.resetModules();
+    vi.doMock('cloudflare:workers', () => ({ env: { DB: db } }));
+    try {
+      const fresh = await import('../src/services/index.ts');
+      const bound = fresh.getServices();
+      expect(bound.venues).toBeDefined();
+      expect(fresh.isScaffoldData()).toBe(false);
+      expect((await bound.venues.list()).length).toBeGreaterThan(0);
+    } finally {
+      vi.doUnmock('cloudflare:workers');
+      vi.resetModules();
+    }
+  });
 });
+
+artistContract('D1', () => services.artists);

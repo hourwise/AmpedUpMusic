@@ -9,12 +9,34 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ADMIN_NAV, FOOTER_LEGAL_NAV, PUBLIC_NAV } from '../src/lib/site.ts';
-import { getServices } from '../src/services/index.ts';
+import { createServices } from '../src/services/index.ts';
+import { openEphemeralDatabase } from '../src/db/local.ts';
+import { migrate } from '../src/db/migrations.ts';
+import { applySeed } from '../src/db/seed.ts';
+import type { Services } from '../src/services/contracts.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pages = join(root, 'src', 'pages');
+
+// AMPED-03A: reads come from D1, so these route checks run against a throwaway
+// migrated and seeded database rather than a fixture service.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+
+let database: Awaited<ReturnType<typeof openEphemeralDatabase>>;
+let services: Services;
+
+beforeAll(async () => {
+  database = await openEphemeralDatabase();
+  await migrate(database.db);
+  await applySeed(database.db);
+  services = createServices(database.db);
+});
+
+afterAll(async () => {
+  await database.dispose();
+});
 
 /** Does a route have a page file? Handles index, flat and dynamic routes. */
 function routeExists(route: string): boolean {
@@ -78,9 +100,9 @@ describe('admin routes resolve', () => {
   });
 });
 
-describe('every fixture event has a reachable page', () => {
+describe('every seeded event has a reachable page', () => {
   it('routes each slug to a template that exists', async () => {
-    const slugs = await getServices().events.listPublicSlugs();
+    const slugs = await services.events.listPublicSlugs();
     expect(slugs.length).toBeGreaterThan(0);
     for (const { slug, isPast } of slugs) {
       const template = isPast ? 'past-gigs' : 'gigs';
@@ -92,8 +114,7 @@ describe('every fixture event has a reachable page', () => {
 });
 
 describe('scaffold hygiene', () => {
-  it('has generated the placeholder artwork the fixtures point at', async () => {
-    const services = getServices();
+  it('has generated the placeholder artwork the seeded media points at', async () => {
     const upcoming = await services.events.listUpcoming();
     const withPosters = upcoming.filter((e) => e.posterUrl);
     expect(withPosters.length).toBeGreaterThan(0);

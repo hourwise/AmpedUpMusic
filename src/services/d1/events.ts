@@ -147,6 +147,10 @@ const SELECT_PUBLIC_EVENTS_BY_IDS_SQL =
   `select ${EVENT_COLUMNS} from events ` +
   `where id in (select value from json_each(?1)) and ${PUBLIC_STATUS_SQL} order by starts_at, id`;
 
+/** Admin reads are deliberately unfiltered: drafts and archives are the job. */
+const SELECT_ALL_EVENTS_SQL = `select ${EVENT_COLUMNS} from events order by starts_at, id`;
+const SELECT_EVENT_BY_ID_SQL = `select ${EVENT_COLUMNS} from events where id = ?1`;
+
 const SELECT_EVENT_IDS_FOR_ARTIST_SQL =
   'select event_id from event_artists where artist_id = ?1';
 
@@ -261,90 +265,115 @@ class D1EventRepository implements PublicEventService {
     return results;
   }
 
-  /** The bounded batch loader: at most nine statements for any non-empty set. */
-  private async project(rows: EventRow[], now: Date): Promise<EventView[]> {
-    if (rows.length === 0) return [];
-    const eventIds = rows.map((row) => row.id);
-    const eventIdJson = JSON.stringify(eventIds);
-
-    const lineupRows = (
-      await this.db.prepare(SELECT_LINEUP_FOR_EVENTS_SQL).bind(eventIdJson).all<EventArtistRow>()
-    ).results;
-
-    const lineupByEvent = new Map<string, EventArtistRow[]>();
-    for (const entry of lineupRows) {
-      const list = lineupByEvent.get(entry.event_id);
-      if (list) list.push(entry);
-      else lineupByEvent.set(entry.event_id, [entry]);
-    }
-
-    const artistIds = unique(lineupRows.map((entry) => entry.artist_id));
-    const artists = new Map<string, ArtistRow>();
-    if (artistIds.length > 0) {
-      const { results } = await this.db
-        .prepare(SELECT_ARTISTS_BY_IDS_SQL)
-        .bind(JSON.stringify(artistIds))
-        .all<ArtistRow>();
-      for (const row of results) artists.set(row.id, row);
-    }
-
-    const venueIds = unique(rows.map((row) => row.venue_id));
-    const venues = new Map<string, VenueRow>();
-    if (venueIds.length > 0) {
-      const { results } = await this.db
-        .prepare(SELECT_VENUES_BY_IDS_SQL)
-        .bind(JSON.stringify(venueIds))
-        .all<VenueRow>();
-      for (const row of results) venues.set(row.id, row);
-    }
-
-    // Public ticket types plus their sold/reserved counters, from the single
-    // authoritative AMPED-02D inventory-read implementation.
-    const { typesByEvent: ticketTypes, counters } = await this.tickets.publicInventory(
-      eventIds,
-    );
-
-    const mediaIds = unique([
-      ...rows.flatMap((row) =>
-        [row.poster_asset_id, row.hero_asset_id].filter((id): id is string => id !== null),
-      ),
-      ...[...artists.values()]
-        .map((row) => row.image_asset_id)
-        .filter((id): id is string => id !== null),
-    ]);
-    const media = new Map<string, MediaAssetRow>();
-    if (mediaIds.length > 0) {
-      const { results } = await this.db
-        .prepare(SELECT_MEDIA_BY_IDS_SQL)
-        .bind(JSON.stringify(mediaIds))
-        .all<MediaAssetRow>();
-      for (const row of results) media.set(row.id, row);
-    }
-
-    const galleryRows = (
-      await this.db.prepare(SELECT_GALLERY_FOR_EVENTS_SQL).bind(eventIdJson).all<MediaAssetRow>()
-    ).results;
-    const gallery = new Map<string, MediaAssetRow[]>();
-    for (const row of galleryRows) {
-      if (row.event_id === null) continue;
-      const list = gallery.get(row.event_id);
-      if (list) list.push(row);
-      else gallery.set(row.event_id, [row]);
-    }
-
-    const data: ProjectionData = {
-      venues,
-      artists,
-      media,
-      gallery,
-      ticketTypes,
-      counters,
-    };
-
-    return rows.map((row) =>
-      projectEvent(toEvent(row, lineupByEvent.get(row.id) ?? []), data, now),
-    );
+  private project(rows: EventRow[], now: Date): Promise<EventView[]> {
+    return projectEventRows(this.db, this.tickets, rows, now);
   }
+}
+
+/**
+ * Every event row, drafts and archives included, for the admin reads.
+ * AMPED-03A moved this here so the admin service and the public service share
+ * one projection rather than growing a second copy of it.
+ */
+export async function loadAllEvents(db: D1Database): Promise<EventRow[]> {
+  const { results } = await db.prepare(SELECT_ALL_EVENTS_SQL).all<EventRow>();
+  return results;
+}
+
+/** One event row at any status, or null. */
+export async function loadEventById(db: D1Database, id: string): Promise<EventRow | null> {
+  return db.prepare(SELECT_EVENT_BY_ID_SQL).bind(id).first<EventRow>();
+}
+
+/**
+ * The bounded batch loader: at most nine statements for any non-empty set.
+ * Shared by the public, admin and door event services.
+ */
+export async function projectEventRows(
+  db: D1Database,
+  tickets: TicketInventoryService,
+  rows: EventRow[],
+  now: Date,
+): Promise<EventView[]> {
+  if (rows.length === 0) return [];
+  const eventIds = rows.map((row) => row.id);
+  const eventIdJson = JSON.stringify(eventIds);
+
+  const lineupRows = (
+    await db.prepare(SELECT_LINEUP_FOR_EVENTS_SQL).bind(eventIdJson).all<EventArtistRow>()
+  ).results;
+
+  const lineupByEvent = new Map<string, EventArtistRow[]>();
+  for (const entry of lineupRows) {
+    const list = lineupByEvent.get(entry.event_id);
+    if (list) list.push(entry);
+    else lineupByEvent.set(entry.event_id, [entry]);
+  }
+
+  const artistIds = unique(lineupRows.map((entry) => entry.artist_id));
+  const artists = new Map<string, ArtistRow>();
+  if (artistIds.length > 0) {
+    const { results } = await db
+      .prepare(SELECT_ARTISTS_BY_IDS_SQL)
+      .bind(JSON.stringify(artistIds))
+      .all<ArtistRow>();
+    for (const row of results) artists.set(row.id, row);
+  }
+
+  const venueIds = unique(rows.map((row) => row.venue_id));
+  const venues = new Map<string, VenueRow>();
+  if (venueIds.length > 0) {
+    const { results } = await db
+      .prepare(SELECT_VENUES_BY_IDS_SQL)
+      .bind(JSON.stringify(venueIds))
+      .all<VenueRow>();
+    for (const row of results) venues.set(row.id, row);
+  }
+
+  // Public ticket types plus their sold/reserved counters, from the single
+  // authoritative AMPED-02D inventory-read implementation.
+  const { typesByEvent: ticketTypes, counters } = await tickets.publicInventory(eventIds);
+
+  const mediaIds = unique([
+    ...rows.flatMap((row) =>
+      [row.poster_asset_id, row.hero_asset_id].filter((id): id is string => id !== null),
+    ),
+    ...[...artists.values()]
+      .map((row) => row.image_asset_id)
+      .filter((id): id is string => id !== null),
+  ]);
+  const media = new Map<string, MediaAssetRow>();
+  if (mediaIds.length > 0) {
+    const { results } = await db
+      .prepare(SELECT_MEDIA_BY_IDS_SQL)
+      .bind(JSON.stringify(mediaIds))
+      .all<MediaAssetRow>();
+    for (const row of results) media.set(row.id, row);
+  }
+
+  const galleryRows = (
+    await db.prepare(SELECT_GALLERY_FOR_EVENTS_SQL).bind(eventIdJson).all<MediaAssetRow>()
+  ).results;
+  const gallery = new Map<string, MediaAssetRow[]>();
+  for (const row of galleryRows) {
+    if (row.event_id === null) continue;
+    const list = gallery.get(row.event_id);
+    if (list) list.push(row);
+    else gallery.set(row.event_id, [row]);
+  }
+
+  const data: ProjectionData = {
+    venues,
+    artists,
+    media,
+    gallery,
+    ticketTypes,
+    counters,
+  };
+
+  return rows.map((row) =>
+    projectEvent(toEvent(row, lineupByEvent.get(row.id) ?? []), data, now),
+  );
 }
 
 /** Build the D1 event repository against a resolved binding. */
