@@ -43,7 +43,7 @@ import { createD1ArtistService } from './d1/artists.ts';
 import { createD1AuditService } from './d1/audit.ts';
 import { createD1DoorService } from './d1/door.ts';
 import { createD1EnquiryService } from './d1/enquiries.ts';
-import { createD1EventRepository } from './d1/events.ts';
+import { createD1EventRepository, createD1GigMutations, type GigMutationService } from './d1/events.ts';
 import { createD1MailingListService } from './d1/mailing-list.ts';
 import { createD1MediaService } from './d1/media.ts';
 import { createD1OrderService } from './d1/orders.ts';
@@ -95,6 +95,7 @@ async function boundDatabase(): Promise<D1Database | undefined> {
 const database = await boundDatabase();
 
 let cached: Services | null = null;
+let cachedGigMutations: GigMutationService | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -120,6 +121,25 @@ export function getServices(): Services {
  */
 export function isScaffoldData(): boolean {
   return database === undefined;
+}
+
+/**
+ * The AMPED-04B admin gig mutation seam.
+ *
+ * Only the protected /api/admin/gigs routes may use this. It is deliberately
+ * NOT part of the `Services` read object - it writes - and it resolves its D1
+ * binding here, inside src/services, so API routes never import
+ * `cloudflare:workers` or read env.DB directly. Fails loudly with no binding.
+ */
+export function getAdminGigMutations(): GigMutationService {
+  if (!database) {
+    throw new Error(
+      'The D1 binding "DB" is not available, so admin gig writes cannot run. ' +
+        'This is deliberate: an unbound runtime must not accept administrative changes.',
+    );
+  }
+  cachedGigMutations ??= createD1GigMutations(database);
+  return cachedGigMutations;
 }
 
 export type { Services } from './contracts.ts';

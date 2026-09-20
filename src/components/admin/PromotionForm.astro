@@ -97,7 +97,12 @@ const ticketRows = event?.ticketTypes.length
     ];
 ---
 
-<form class="promo" data-mock="AMPED-04B gig create and edit">
+<form
+  class="promo"
+  data-gig-form
+  data-event-id={event?.id ?? ''}
+  data-event-status={event?.status ?? 'draft'}
+>
   <!-- Step navigation ---------------------------------------------------- -->
   <div class="steps" role="tablist" aria-label="Promotion steps">
     {
@@ -242,20 +247,47 @@ const ticketRows = event?.ticketTypes.length
       Top of the list is the headline act. Use the arrows to change the running order.
     </p>
 
+    <input
+      type="hidden"
+      name="lineup"
+      data-lineup-input
+      value={(event?.lineup ?? []).map((entry) => entry.artist.id).join(',')}
+    />
+
     <ol class="lineup-edit" data-lineup>
       {
         (event?.lineup ?? []).map((entry, index) => (
-          <li class="lineup-row">
+          <li
+            class="lineup-row"
+            data-lineup-row
+            data-artist-id={entry.artist.id}
+            data-artist-name={entry.artist.name}
+          >
             <span class="lineup-pos">{index === 0 ? 'Headline' : index === 1 ? 'Support' : 'Also on'}</span>
             <span class="lineup-artist">{entry.artist.name}</span>
             <span class="lineup-controls">
-              <button type="button" class="icon-btn" aria-label={`Move ${entry.artist.name} up`}>
+              <button
+                type="button"
+                class="icon-btn"
+                data-lineup-move="-1"
+                aria-label={`Move ${entry.artist.name} up`}
+              >
                 <span aria-hidden="true">^</span>
               </button>
-              <button type="button" class="icon-btn" aria-label={`Move ${entry.artist.name} down`}>
+              <button
+                type="button"
+                class="icon-btn"
+                data-lineup-move="1"
+                aria-label={`Move ${entry.artist.name} down`}
+              >
                 <span aria-hidden="true">v</span>
               </button>
-              <button type="button" class="icon-btn icon-btn-danger" aria-label={`Remove ${entry.artist.name}`}>
+              <button
+                type="button"
+                class="icon-btn icon-btn-danger"
+                data-lineup-remove
+                aria-label={`Remove ${entry.artist.name}`}
+              >
                 <AdminIcon name="close" size={16} />
               </button>
             </span>
@@ -281,7 +313,7 @@ const ticketRows = event?.ticketTypes.length
             ...artists.map((artist) => ({ value: artist.id, label: artist.name })),
           ]}
         />
-        <Button variant="solid" size="md">Add to the bill</Button>
+        <Button variant="solid" size="md" type="button" data-add-lineup>Add to the bill</Button>
       </div>
       <p class="add-artist-or">or</p>
       <Button href="/admin/artists" variant="outline" size="md">
@@ -318,8 +350,10 @@ const ticketRows = event?.ticketTypes.length
     <div class="ticket-rows" data-ticket-rows>
       {
         ticketRows.map((ticket, index) => (
-          <fieldset class="ticket-row surface-inset">
+          <fieldset class="ticket-row surface-inset" data-ticket-row>
             <legend class="ticket-legend">Ticket type {index + 1}</legend>
+
+            <input type="hidden" name={`ticket-${index}-id`} value={event ? ticket.id : ''} />
 
             <div class="ticket-grid">
               <Field
@@ -524,13 +558,14 @@ const ticketRows = event?.ticketTypes.length
         }
       </p>
       <div class="promo-bar-actions">
-        <Button variant="ghost" size="md">Save draft</Button>
+        <Button variant="ghost" size="md" type="button" data-save-draft>Save draft</Button>
         <Button href={event?.href ?? '/gigs'} variant="outline" size="md">Preview</Button>
-        <Button variant="volt" size="md" data-confirm-open="publish-confirm">
+        <Button variant="volt" size="md" type="button" data-confirm-open="publish-confirm">
           {event?.status === 'published' ? 'Save changes' : 'Publish'}
         </Button>
       </div>
     </div>
+    <p class="promo-feedback" data-feedback role="status" aria-live="polite" hidden></p>
   </div>
 </form>
 
@@ -617,10 +652,197 @@ const ticketRows = event?.ticketTypes.length
     clone.querySelector<HTMLInputElement>('input')?.focus();
   });
 
-  // Nothing is submitted during AMPED-01.
-  document.querySelector<HTMLFormElement>('.promo')?.addEventListener('submit', (event) => {
-    event.preventDefault();
+  // --- AMPED-04B: real submissions to the protected admin API --------------
+  //
+  // The server is authoritative; this script only assembles the form into the
+  // payload shape the API validates and reports what the server says. It never
+  // shows a success state before the response arrives.
+
+  const form = document.querySelector<HTMLFormElement>('[data-gig-form]');
+  const feedback = document.querySelector<HTMLElement>('[data-feedback]');
+  const eventId = form?.dataset.eventId ?? '';
+
+  function say(message: string, tone: 'ok' | 'error') {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+    feedback.hidden = false;
+  }
+
+  function value(name: string): string {
+    const field = form?.querySelector(`[name="${name}"]`) as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null;
+    return field?.value.trim() ?? '';
+  }
+
+  function collectTickets() {
+    const rows = Array.from(form?.querySelectorAll<HTMLElement>('[data-ticket-row]') ?? []);
+    return rows.map((row, index) => {
+      const read = (suffix: string) =>
+        row.querySelector<HTMLInputElement>(`[name="ticket-${index}-${suffix}"]`)?.value.trim() ?? '';
+      return {
+        id: read('id') || undefined,
+        name: read('name'),
+        description: read('description'),
+        price: read('price'),
+        capacity: read('capacity'),
+        max: read('max'),
+        opens: read('opens'),
+        closes: read('closes'),
+        visibility: 'public',
+      };
+    });
+  }
+
+  function payload() {
+    return {
+      title: value('title'),
+      strapline: value('strapline'),
+      description: value('description'),
+      venueId: value('venueId'),
+      doorsAt: value('doorsAt'),
+      startsAt: value('startsAt'),
+      endsAt: value('endsAt'),
+      ageRestriction: value('ageRestriction'),
+      accessibilityNotes: value('accessibilityNotes'),
+      internalNotes: value('internalNotes'),
+      links: {
+        instagram: value('instagram'),
+        tiktok: value('tiktok'),
+        facebook: value('facebook'),
+        youtube: value('youtube'),
+      },
+      photographyCredit: value('photographyCredit'),
+      photographyGalleryUrl: value('photographyGallery'),
+      lineup: value('lineup'),
+      guestList: value('guestList'),
+      ticketTypes: collectTickets(),
+    };
+  }
+
+  async function send(url: string, method: string, body?: unknown) {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      id?: string;
+      slug?: string;
+      fields?: Record<string, string>;
+    };
+    if (!response.ok || !data.ok) {
+      const message = data.fields
+        ? Object.values(data.fields).filter(Boolean).join(' ')
+        : 'That could not be saved. Please check the form and try again.';
+      throw new Error(message);
+    }
+    return data;
+  }
+
+  async function saveDraft() {
+    const body = payload();
+    if (eventId) {
+      await send(`/api/admin/gigs/${encodeURIComponent(eventId)}`, 'PATCH', body);
+      say('Draft saved.', 'ok');
+      return eventId;
+    }
+    const created = await send('/api/admin/gigs', 'POST', body);
+    return created.id ?? '';
+  }
+
+  document.querySelector('[data-save-draft]')?.addEventListener('click', async () => {
+    try {
+      const id = await saveDraft();
+      if (!eventId && id) window.location.assign(`/admin/gigs/${id}`);
+    } catch (error) {
+      say(error instanceof Error ? error.message : 'Could not save.', 'error');
+    }
   });
+
+  // The publish ConfirmDialog is rendered outside the form; its accept button
+  // closes the dialog (ConfirmDialog's own handler) and this saves + publishes.
+  document
+    .querySelector('#publish-confirm [data-confirm-accept]')
+    ?.addEventListener('click', async () => {
+      try {
+        const id = eventId || (await saveDraft());
+        if (!id) throw new Error('Could not save the gig first.');
+        await send(`/api/admin/gigs/${encodeURIComponent(id)}/publish`, 'POST');
+        if (!eventId) window.location.assign(`/admin/gigs/${id}`);
+        else say('Published.', 'ok');
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not publish.', 'error');
+      }
+    });
+
+  // --- Line-up editing keeps the hidden `lineup` input in running order -----
+
+  const lineupInput = form?.querySelector<HTMLInputElement>('[data-lineup-input]');
+  const lineupList = form?.querySelector<HTMLElement>('[data-lineup]');
+
+  function syncLineup() {
+    const rows = Array.from(lineupList?.querySelectorAll<HTMLElement>('[data-lineup-row]') ?? []);
+    rows.forEach((row, index) => {
+      const pos = row.querySelector('.lineup-pos');
+      if (pos) pos.textContent = index === 0 ? 'Headline' : index === 1 ? 'Support' : 'Also on';
+    });
+    if (lineupInput) {
+      lineupInput.value = rows.map((row) => row.dataset.artistId ?? '').filter(Boolean).join(',');
+    }
+  }
+
+  lineupList?.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement;
+    const row = target.closest<HTMLElement>('[data-lineup-row]');
+    if (!row) return;
+    if (target.closest('[data-lineup-remove]')) {
+      row.remove();
+    } else {
+      const move = target.closest<HTMLElement>('[data-lineup-move]')?.dataset.lineupMove;
+      if (move === '-1' && row.previousElementSibling) {
+        row.parentElement?.insertBefore(row, row.previousElementSibling);
+      }
+      if (move === '1' && row.nextElementSibling) {
+        row.parentElement?.insertBefore(row.nextElementSibling, row);
+      }
+    }
+    syncLineup();
+  });
+
+  document.querySelector('[data-add-lineup]')?.addEventListener('click', () => {
+    const select = form?.querySelector('[name="artistId"]') as HTMLSelectElement | null;
+    const artistId = select?.value ?? '';
+    if (!select || !artistId || !lineupList) return;
+    if (lineupList.querySelector(`[data-artist-id="${CSS.escape(artistId)}"]`)) {
+      say('That act is already on the bill.', 'error');
+      return;
+    }
+    const name = select.options[select.selectedIndex]?.text ?? artistId;
+    const row = document.createElement('li');
+    row.className = 'lineup-row';
+    row.dataset.lineupRow = '';
+    row.dataset.artistId = artistId;
+    row.dataset.artistName = name;
+    row.innerHTML =
+      '<span class="lineup-pos"></span><span class="lineup-artist"></span>' +
+      '<span class="lineup-controls">' +
+      '<button type="button" class="icon-btn" data-lineup-move="-1" aria-label="Move up">^</button>' +
+      '<button type="button" class="icon-btn" data-lineup-move="1" aria-label="Move down">v</button>' +
+      '<button type="button" class="icon-btn icon-btn-danger" data-lineup-remove aria-label="Remove">x</button>' +
+      '</span>';
+    const label = row.querySelector('.lineup-artist');
+    if (label) label.textContent = name;
+    lineupList.appendChild(row);
+    select.value = '';
+    syncLineup();
+  });
+
+  form?.addEventListener('submit', (event) => event.preventDefault());
 </script>
 
 <style>
@@ -1001,5 +1223,20 @@ const ticketRows = event?.ticketTypes.length
     flex-wrap: wrap;
     gap: var(--s-2);
     margin-left: auto;
+  }
+
+  .promo-feedback {
+    max-width: 68rem;
+    margin: var(--s-2) auto 0;
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .promo-feedback[data-tone='ok'] {
+    color: var(--go);
+  }
+
+  .promo-feedback[data-tone='error'] {
+    color: var(--stop);
   }
 </style>

@@ -17,7 +17,6 @@ import StatusBadge from '@/components/admin/StatusBadge.astro';
 import Button from '@/components/ui/Button.astro';
 import Callout from '@/components/ui/Callout.astro';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import { getServices } from '@/services/index.ts';
 import { plural } from '@/lib/text.ts';
@@ -104,7 +103,13 @@ const canDelete = event?.status === 'draft' && !hasOrders;
 
       <PromotionForm event={event} venues={venues} artists={artists} />
 
-      <section class="danger" aria-labelledby="danger-heading">
+      <section
+        class="danger"
+        aria-labelledby="danger-heading"
+        data-gig-admin
+        data-event-id={event.id}
+        data-event-status={event.status}
+      >
         <h2 class="display display-sm" id="danger-heading">Changing or stopping this gig</h2>
         <p class="danger-intro">
           If something goes wrong with a date, use these rather than deleting anything. Ticket
@@ -147,10 +152,7 @@ const canDelete = event?.status === 'draft' && !hasOrders;
           </div>
         </div>
 
-        <ScaffoldNote slice="AMPED-10C">
-          None of these actions are connected. In V1 each one changes the event status, records who
-          did it in the audit log, and offers to email every ticket holder exactly once.
-        </ScaffoldNote>
+        <p class="danger-feedback" data-gig-feedback role="status" aria-live="polite" hidden></p>
       </section>
 
       <ConfirmDialog
@@ -200,7 +202,98 @@ const canDelete = event?.status === 'draft' && !hasOrders;
   )
 }
 
+<script>
+  // AMPED-04B lifecycle actions: the buttons live in ConfirmDialog, whose own
+  // handler closes the dialog; these listeners perform the real protected call.
+  const root = document.querySelector<HTMLElement>('[data-gig-admin]');
+
+  if (root) {
+    const id = root.dataset.eventId ?? '';
+    const status = root.dataset.eventStatus ?? '';
+    const feedback = document.querySelector<HTMLElement>('[data-gig-feedback]');
+
+    const say = (message: string, tone: 'ok' | 'error') => {
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.dataset.tone = tone;
+      feedback.hidden = false;
+    };
+
+    async function call(url: string, method: string, body?: unknown) {
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        fields?: Record<string, string>;
+      };
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.fields
+            ? Object.values(data.fields).filter(Boolean).join(' ')
+            : 'That action could not be completed.',
+        );
+      }
+      return data;
+    }
+
+    function onAccept(dialogId: string, handler: () => Promise<void>) {
+      document
+        .querySelector(`#${dialogId} [data-confirm-accept]`)
+        ?.addEventListener('click', () => {
+          handler().catch((error: unknown) => {
+            say(error instanceof Error ? error.message : 'That action failed.', 'error');
+          });
+        });
+    }
+
+    onAccept('postpone-confirm', async () => {
+      const message = window.prompt(
+        'Why is this gig postponed? This notice is shown to customers.',
+        'New date to be announced.',
+      );
+      if (!message || !message.trim()) return;
+      await call(`/api/admin/gigs/${encodeURIComponent(id)}/lifecycle`, 'POST', {
+        to: 'postponed',
+        from: status,
+        statusMessage: message.trim(),
+      });
+      window.location.reload();
+    });
+
+    onAccept('cancel-confirm', async () => {
+      const message = window.prompt(
+        'Why is this gig cancelled? This notice is shown to customers.',
+        'Cancelled - refunds will be issued.',
+      );
+      if (!message || !message.trim()) return;
+      await call(`/api/admin/gigs/${encodeURIComponent(id)}/lifecycle`, 'POST', {
+        to: 'cancelled',
+        from: status,
+        statusMessage: message.trim(),
+      });
+      window.location.reload();
+    });
+
+    onAccept('delete-confirm', async () => {
+      await call(`/api/admin/gigs/${encodeURIComponent(id)}`, 'DELETE');
+      window.location.assign('/admin/gigs');
+    });
+  }
+</script>
+
 <style>
+  .danger-feedback {
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .danger-feedback[data-tone='error'] {
+    color: var(--stop);
+  }
+
   .head-actions {
     display: flex;
     flex-wrap: wrap;

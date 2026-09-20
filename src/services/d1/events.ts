@@ -1,4 +1,4 @@
-/**
+﻿/**
  * D1-backed PublicEventService and the D1 event lookup ArtistService uses
  * (AMPED-02C).
  *
@@ -37,6 +37,17 @@ import type {
   MediaAssetRow,
   VenueRow,
 } from '@/db/schema.ts';
+import { slugify } from '@/lib/text.ts';
+import {
+  assessReadiness,
+  ConflictError,
+  isAllowedTransition,
+  NotFoundError,
+  ValidationError,
+  type ReadinessReport,
+  type ValidatedGigInput,
+} from '@/lib/validation.ts';
+import type { EventStatus } from '@/types/domain.ts';
 import type { EventView } from '@/types/view.ts';
 
 import type { PublicEventService } from '../contracts.ts';
@@ -382,4 +393,571 @@ export function createD1EventRepository(
   clock?: () => Date,
 ): PublicEventService & { eventsFor(artistId: string): Promise<EventView[]> } {
   return new D1EventRepository(db, clock);
+}
+
+// ---------------------------------------------------------------------------
+// AMPED-04B - gig administration (writes)
+// ---------------------------------------------------------------------------
+
+/**
+ * The write half of gig administration, used only by the protected
+ * /api/admin/gigs routes. Kept out of `contracts.ts` deliberately: it is an
+ * internal mutation seam, not a contract the public UI reads through. Domain
+ * invariants are enforced here as well as in `src/lib/validation.ts`, so a
+ * caller that bypasses the form still cannot corrupt the diary.
+ *
+ * Atomicity: each operation issues its statements through `db.batch`, which D1
+ * runs as one transaction. Audit rows are part of the same batch, guarded by a
+ * `where exists/not exists` on the event so a no-op update cannot record a
+ * success it did not have.
+ */
+
+const AUDIT_INSERT_SQL =
+  'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+  'values (?1, ?2, ?3, ?4, ?5, ?6, ?7)';
+
+const SELECT_VENUE_EXISTS_SQL = 'select 1 as ok from venues where id = ?1';
+const SELECT_ARTISTS_EXIST_SQL =
+  'select id from artists where id in (select value from json_each(?1))';
+const SELECT_EVENT_TICKET_TYPES_SQL =
+  'select id, visibility, capacity from ticket_types where event_id = ?1';
+const SELECT_EVENT_ROW_SQL = `select ${EVENT_COLUMNS} from events where id = ?1`;
+
+export interface GigOperator {
+  email: string;
+  sub?: string;
+}
+
+export interface GigMutationOptions {
+  /** Test seam: deterministic id generation. */
+  newId?: (prefix: string) => string;
+}
+
+type IdFactory = (prefix: string) => string;
+
+const defaultId: IdFactory = (prefix) => `${prefix}_${crypto.randomUUID()}`;
+
+interface GigMutationDeps {
+  now: () => Date;
+  newId: IdFactory;
+}
+
+// Timestamping is a per-instance monotonic sequence, not just the clock: two
+// writes in the same millisecond must still be distinguishable, because the
+// transition guard compares the row's `updated_at` against the value this write
+// wrote. A test clock frozen at one instant would otherwise make a stale
+// request look like it had succeeded.
+function nextTimestamp(previous: number, now: Date): { iso: string; value: number } {
+  const value = Math.max(now.getTime(), previous + 1);
+  return { iso: new Date(value).toISOString(), value };
+}
+
+export interface GigMutationService {
+  create(
+    input: ValidatedGigInput,
+    operator: GigOperator,
+    options?: GigMutationOptions,
+  ): Promise<{ id: string; slug: string }>;
+  update(id: string, input: ValidatedGigInput, operator: GigOperator): Promise<{ slug: string }>;
+  publish(id: string, operator: GigOperator): Promise<void>;
+  transition(
+    id: string,
+    to: EventStatus,
+    expectedFrom: EventStatus,
+    operator: GigOperator,
+    options?: { statusMessage?: string },
+  ): Promise<void>;
+  remove(id: string, operator: GigOperator): Promise<void>;
+  readiness(id: string): Promise<ReadinessReport>;
+}
+
+class D1GigMutations implements GigMutationService {
+  private readonly deps: GigMutationDeps;
+  private readonly tickets: TicketInventoryService;
+  private lastStamp = 0;
+
+  constructor(
+    private readonly db: D1Database,
+    /** Clock seam so audit timestamps are testable. */
+    now: () => Date = () => new Date(),
+    newId: IdFactory = defaultId,
+  ) {
+    this.deps = { now, newId };
+    this.tickets = createD1TicketInventoryService(db, now);
+  }
+
+  async create(
+    input: ValidatedGigInput,
+    operator: GigOperator,
+    options: GigMutationOptions = {},
+  ): Promise<{ id: string; slug: string }> {
+    await this.assertVenue(input.venueId);
+    await this.assertArtists(input.lineup);
+
+    const newId = options.newId ?? this.deps.newId;
+    const id = newId('evt');
+    const slug = await this.uniqueSlug(slugify(input.title));
+    const at = this.stamp();
+
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `insert into events (
+             id, title, slug, status, strapline, description, venue_id,
+             doors_at, starts_at, ends_at, age_restriction, accessibility_notes,
+             link_instagram, link_tiktok, link_facebook, link_youtube,
+             photography_credit, photography_gallery_url, internal_notes,
+             published_at, created_at, updated_at
+           ) values (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, null, ?19, ?19)`,
+        )
+        .bind(
+          id,
+          input.title,
+          slug,
+          input.strapline ?? null,
+          input.description,
+          input.venueId,
+          input.doorsAt,
+          input.startsAt,
+          input.endsAt ?? null,
+          input.ageRestriction,
+          input.accessibilityNotes ?? null,
+          input.links.instagram ?? null,
+          input.links.tiktok ?? null,
+          input.links.facebook ?? null,
+          input.links.youtube ?? null,
+          input.photographyCredit ?? null,
+          input.photographyGalleryUrl ?? null,
+          input.internalNotes ?? null,
+          at,
+        ),
+    ];
+
+    for (const [position, artistId] of input.lineup.entries()) {
+      statements.push(
+        this.db
+          .prepare(
+            'insert into event_artists (event_id, artist_id, position, billing_note, set_time) values (?1, ?2, ?3, null, null)',
+          )
+          .bind(id, artistId, position),
+      );
+    }
+
+    for (const [position, ticket] of input.ticketTypes.entries()) {
+      statements.push(this.insertTicketType(newId('tt'), id, ticket, position));
+    }
+
+    if (input.guestList > 0) {
+      statements.push(
+        this.insertTicketType(
+          newId('tt'),
+          id,
+          {
+            name: 'Guest list',
+            description: 'Comps and guest list places. Never shown on the website.',
+            priceInPence: 0,
+            capacity: input.guestList,
+            visibility: 'hidden',
+          },
+          input.ticketTypes.length,
+        ),
+      );
+    }
+
+    statements.push(
+      this.auditStatement(
+        newId('aud'),
+        operator.email,
+        'event.created',
+        id,
+        `Created draft "${input.title}"`,
+        at,
+      ),
+    );
+
+    await this.db.batch(statements);
+    return { id, slug };
+  }
+
+  async update(
+    id: string,
+    input: ValidatedGigInput,
+    operator: GigOperator,
+  ): Promise<{ slug: string }> {
+    const row = await this.db.prepare(SELECT_EVENT_ROW_SQL).bind(id).first<EventRow>();
+    if (!row) throw new NotFoundError('That gig does not exist.');
+    await this.assertVenue(input.venueId);
+    await this.assertArtists(input.lineup);
+
+    // A published gig's public URL is immutable; a draft may still be renamed.
+    const slug = row.status === 'draft' ? await this.uniqueSlug(slugify(input.title), id) : row.slug;
+    const at = this.stamp();
+
+    const committed = await this.committedByType(id);
+    const existing = await this.db
+      .prepare(SELECT_EVENT_TICKET_TYPES_SQL)
+      .bind(id)
+      .all<{ id: string; visibility: string; capacity: number }>();
+    // The edit form manages public ticket types only. Hidden/guest-list types
+    // are configured through the separate guestList field and are never
+    // deleted here, so a public edit can never drop a guest allocation.
+    const existingPublic = existing.results.filter((entry) => entry.visibility === 'public');
+    const existingHidden = existing.results.filter((entry) => entry.visibility === 'hidden');
+    const existingIds = new Set(existingPublic.map((entry) => entry.id));
+    const submittedIds = new Set(input.ticketTypes.map((ticket) => ticket.id).filter(Boolean));
+
+    for (const ticket of input.ticketTypes) {
+      if (ticket.id && !existingIds.has(ticket.id)) {
+        throw new ConflictError('That ticket type does not belong to this gig.');
+      }
+      const held = ticket.id ? (committed.get(ticket.id) ?? 0) : 0;
+      if (ticket.capacity < held) {
+        throw new ConflictError(
+          `${ticket.name}: you cannot set the allocation below the ${held} already sold or held.`,
+        );
+      }
+    }
+    for (const existingId of existingIds) {
+      if (submittedIds.has(existingId)) continue;
+      const held = committed.get(existingId) ?? 0;
+      if (held > 0) throw new ConflictError('A ticket type with sales against it cannot be removed.');
+    }
+
+    const guestType = existingHidden[0];
+    const guestCommitted = guestType ? (committed.get(guestType.id) ?? 0) : 0;
+    if (input.guestList < guestCommitted) {
+      throw new ConflictError(
+        `Guest list: you cannot set the allocation below the ${guestCommitted} already issued.`,
+      );
+    }
+
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `update events set
+             title = ?1, slug = ?2, strapline = ?3, description = ?4, venue_id = ?5,
+             doors_at = ?6, starts_at = ?7, ends_at = ?8, age_restriction = ?9,
+             accessibility_notes = ?10, link_instagram = ?11, link_tiktok = ?12,
+             link_facebook = ?13, link_youtube = ?14, photography_credit = ?15,
+             photography_gallery_url = ?16, internal_notes = ?17, updated_at = ?18
+           where id = ?19`,
+        )
+        .bind(
+          input.title,
+          slug,
+          input.strapline ?? null,
+          input.description,
+          input.venueId,
+          input.doorsAt,
+          input.startsAt,
+          input.endsAt ?? null,
+          input.ageRestriction,
+          input.accessibilityNotes ?? null,
+          input.links.instagram ?? null,
+          input.links.tiktok ?? null,
+          input.links.facebook ?? null,
+          input.links.youtube ?? null,
+          input.photographyCredit ?? null,
+          input.photographyGalleryUrl ?? null,
+          input.internalNotes ?? null,
+          at,
+          id,
+        ),
+      this.db.prepare('delete from event_artists where event_id = ?1').bind(id),
+    ];
+
+    for (const [position, artistId] of input.lineup.entries()) {
+      statements.push(
+        this.db
+          .prepare(
+            'insert into event_artists (event_id, artist_id, position, billing_note, set_time) values (?1, ?2, ?3, null, null)',
+          )
+          .bind(id, artistId, position),
+      );
+    }
+
+    for (const existingId of existingIds) {
+      if (submittedIds.has(existingId)) continue;
+      statements.push(this.db.prepare('delete from ticket_types where id = ?1').bind(existingId));
+    }
+
+    for (const [position, ticket] of input.ticketTypes.entries()) {
+      if (ticket.id) {
+        statements.push(
+          this.db
+            .prepare(
+              `update ticket_types set
+                 name = ?1, description = ?2, price_in_pence = ?3, capacity = ?4,
+                 max_per_order = ?5, sales_open_at = ?6, sales_close_at = ?7,
+                 position = ?8, visibility = ?9
+               where id = ?10 and event_id = ?11`,
+            )
+            .bind(
+              ticket.name,
+              ticket.description ?? null,
+              ticket.priceInPence,
+              ticket.capacity,
+              ticket.maxPerOrder ?? null,
+              ticket.salesOpenAt ?? null,
+              ticket.salesCloseAt ?? null,
+              position,
+              ticket.visibility,
+              ticket.id,
+              id,
+            ),
+        );
+      } else {
+        statements.push(this.insertTicketType(this.deps.newId('tt'), id, ticket, position));
+      }
+    }
+
+    if (guestType) {
+      if (input.guestList === 0 && guestCommitted === 0) {
+        statements.push(this.db.prepare('delete from ticket_types where id = ?1').bind(guestType.id));
+      } else {
+        statements.push(
+          this.db
+            .prepare('update ticket_types set capacity = ?1 where id = ?2 and event_id = ?3')
+            .bind(input.guestList, guestType.id, id),
+        );
+      }
+    } else if (input.guestList > 0) {
+      statements.push(
+        this.insertTicketType(
+          this.deps.newId('tt'),
+          id,
+          {
+            name: 'Guest list',
+            description: 'Comps and guest list places. Never shown on the website.',
+            priceInPence: 0,
+            capacity: input.guestList,
+            visibility: 'hidden',
+          },
+          input.ticketTypes.length,
+        ),
+      );
+    }
+
+    statements.push(
+      this.auditStatement(
+        this.deps.newId('aud'),
+        operator.email,
+        'event.updated',
+        id,
+        `Edited "${input.title}"`,
+        at,
+      ),
+    );
+
+    await this.db.batch(statements);
+    return { slug };
+  }
+
+  async publish(id: string, operator: GigOperator): Promise<void> {
+    const report = await this.readiness(id);
+    if (!report.ready) {
+      throw new ValidationError(Object.fromEntries(report.blockers.map((blocker) => [blocker, blocker])));
+    }
+    await this.transition(id, 'published', 'draft', operator);
+  }
+
+  async transition(
+    id: string,
+    to: EventStatus,
+    expectedFrom: EventStatus,
+    operator: GigOperator,
+    options: { statusMessage?: string } = {},
+  ): Promise<void> {
+    if (!isAllowedTransition(expectedFrom, to)) {
+      throw new ValidationError({ status: `A gig cannot move from ${expectedFrom} to ${to}.` });
+    }
+
+    const needsMessage = to === 'postponed' || to === 'cancelled';
+    const statusMessage = (options.statusMessage ?? '').trim();
+    if (needsMessage && statusMessage.length === 0) {
+      throw new ValidationError({
+        statusMessage: to === 'cancelled' ? 'Explain why the gig is cancelled.' : 'Explain the postponement.',
+      });
+    }
+
+    const at = this.stamp();
+    const newId = this.deps.newId;
+
+    const update = this.db
+      .prepare(
+        `update events set
+           status = ?1, status_message = ?2, updated_at = ?3,
+           published_at = case when ?1 = 'published' and published_at is null then ?3 else published_at end
+         where id = ?4 and status = ?5`,
+      )
+      .bind(to, statusMessage || null, at, id, expectedFrom);
+
+    // The audit row only lands if the conditional update above actually moved
+    // the event, so a stale concurrent request cannot record a false success.
+    // `updated_at = ?9` ties the audit row to *this* update: a stale request
+    // whose conditional update matched nothing leaves updated_at untouched, so
+    // the guard fails and no false success is recorded.
+    const audit = this.db
+      .prepare(
+        'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+          'select ?1, ?2, ?3, ?4, ?5, ?6, ?7 where exists (select 1 from events where id = ?5 and status = ?8 and updated_at = ?9)',
+      )
+      .bind(
+        newId('aud'),
+        operator.email,
+        `event.${to}`,
+        'event',
+        id,
+        `Moved "${id}" to ${to}`,
+        at,
+        to,
+        at,
+      );
+
+    const results = await this.db.batch([update, audit]);
+    const changed = (results[0]?.meta?.changes ?? 0) as number;
+    if (changed === 0) {
+      const row = await this.db.prepare(SELECT_EVENT_ROW_SQL).bind(id).first<EventRow>();
+      if (!row) throw new NotFoundError('That gig does not exist.');
+      throw new ConflictError('This gig has changed since the page was loaded. Reload and try again.');
+    }
+  }
+
+  async remove(id: string, operator: GigOperator): Promise<void> {
+    const at = this.stamp();
+    const newId = this.deps.newId;
+
+    const del = this.db
+      .prepare(
+        `delete from events where id = ?1 and status = 'draft'
+           and not exists (select 1 from orders where event_id = ?1)`,
+      )
+      .bind(id);
+
+    const audit = this.db
+      .prepare(
+        'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+          'select ?1, ?2, ?3, ?4, ?5, ?6, ?7 where not exists (select 1 from events where id = ?5)',
+      )
+      .bind(newId('aud'), operator.email, 'event.deleted', 'event', id, `Deleted draft "${id}"`, at);
+
+    const results = await this.db.batch([del, audit]);
+    const changed = (results[0]?.meta?.changes ?? 0) as number;
+    if (changed === 0) {
+      const row = await this.db.prepare(SELECT_EVENT_ROW_SQL).bind(id).first<EventRow>();
+      if (!row) throw new NotFoundError('That gig does not exist.');
+      if (row.status !== 'draft') {
+        throw new ConflictError('Only a draft can be deleted. Archive this gig instead.');
+      }
+      throw new ConflictError('This gig has orders against it and can never be deleted.');
+    }
+  }
+
+  async readiness(id: string): Promise<ReadinessReport> {
+    const row = await this.db.prepare(SELECT_EVENT_ROW_SQL).bind(id).first<EventRow>();
+    if (!row) throw new NotFoundError('That gig does not exist.');
+    const [view] = await projectEventRows(this.db, this.tickets, [row], this.deps.now());
+    if (!view) throw new NotFoundError('That gig does not exist.');
+    return assessReadiness(view, view.venue.accessibilityInfo);
+  }
+
+  // -- helpers -------------------------------------------------------------
+
+  /** A strictly increasing audit/updated timestamp for this operation. */
+  private stamp(): string {
+    const next = nextTimestamp(this.lastStamp, this.deps.now());
+    this.lastStamp = next.value;
+    return next.iso;
+  }
+
+  private insertTicketType(
+    id: string,
+    eventId: string,
+    ticket: ValidatedGigInput['ticketTypes'][number],
+    position: number,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `insert into ticket_types (
+           id, event_id, name, description, price_in_pence, capacity, max_per_order,
+           sales_open_at, sales_close_at, position, visibility
+         ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      )
+      .bind(
+        id,
+        eventId,
+        ticket.name,
+        ticket.description ?? null,
+        ticket.priceInPence,
+        ticket.capacity,
+        ticket.maxPerOrder ?? null,
+        ticket.salesOpenAt ?? null,
+        ticket.salesCloseAt ?? null,
+        position,
+        ticket.visibility,
+      );
+  }
+
+  private auditStatement(
+    id: string,
+    actorEmail: string,
+    action: string,
+    eventId: string,
+    summary: string,
+    at: string,
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(AUDIT_INSERT_SQL)
+      .bind(id, actorEmail, action, 'event', eventId, summary, at);
+  }
+
+  private async assertVenue(venueId: string): Promise<void> {
+    const row = await this.db.prepare(SELECT_VENUE_EXISTS_SQL).bind(venueId).first<{ ok: number }>();
+    if (!row) throw new ValidationError({ venueId: 'Choose a venue that exists.' });
+  }
+
+  private async assertArtists(artistIds: readonly string[]): Promise<void> {
+    if (artistIds.length === 0) return;
+    const { results } = await this.db
+      .prepare(SELECT_ARTISTS_EXIST_SQL)
+      .bind(JSON.stringify(artistIds))
+      .all<{ id: string }>();
+    const found = new Set(results.map((row) => row.id));
+    if (artistIds.some((artistId) => !found.has(artistId))) {
+      throw new ValidationError({ lineup: 'One of the acts does not exist.' });
+    }
+  }
+
+  /** sold + genuinely held stock per ticket type, for the capacity floor. */
+  private async committedByType(eventId: string): Promise<Map<string, number>> {
+    const summary = await this.tickets.inventorySummary([eventId]);
+    const committed = new Map<string, number>();
+    for (const entry of summary.get(eventId)?.allTypes ?? []) {
+      committed.set(entry.ticketType.id, entry.sold + entry.reserved);
+    }
+    return committed;
+  }
+
+  private async uniqueSlug(base: string, excludeId?: string): Promise<string> {
+    const seed = base.length > 0 ? base : 'gig';
+    let candidate = seed;
+    for (let suffix = 2; suffix < 500; suffix += 1) {
+      const row = await this.db
+        .prepare('select id from events where slug = ?1')
+        .bind(candidate)
+        .first<{ id: string }>();
+      if (!row || row.id === excludeId) return candidate;
+      candidate = `${seed}-${suffix}`;
+    }
+    throw new ConflictError('Could not find an available URL for that title.');
+  }
+}
+
+/** Build the D1 gig mutation service against a resolved binding. */
+export function createD1GigMutations(
+  db: D1Database,
+  clock?: () => Date,
+  newId?: IdFactory,
+): GigMutationService {
+  return new D1GigMutations(db, clock, newId);
 }
