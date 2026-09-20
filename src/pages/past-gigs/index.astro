@@ -12,8 +12,10 @@ import PageHeader from '@/components/site/PageHeader.astro';
 import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { SITE } from '@/lib/site.ts';
+import { applyPublicCache } from '../gigs/_rendering.ts';
 
 const services = getServices();
+applyPublicCache(Astro.response, 'listing');
 const events = await services.events.listPast();
 const withPhotos = events.filter((e) => e.gallery.length > 0).length;
 ---

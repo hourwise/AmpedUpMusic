@@ -17,9 +17,11 @@ import EmptyState from '@/components/ui/EmptyState.astro';
 import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { paragraphs } from '@/lib/text.ts';
+import { applyPublicCache } from '../gigs/_rendering.ts';
 
 const { slug } = Astro.params;
 const services = getServices();
+applyPublicCache(Astro.response, 'live');
 const artist = slug ? await services.artists.getBySlug(slug) : null;
 
 if (!artist) {

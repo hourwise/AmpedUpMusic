@@ -16,8 +16,10 @@ import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { machineDate } from '@/lib/dates.ts';
 import { AGE_RESTRICTION_SHORT } from '@/lib/text.ts';
+import { applyPublicCache } from './gigs/_rendering.ts';
 
 const services = getServices();
+applyPublicCache(Astro.response, 'live');
 const events = await services.events.listOnSale();
 
 const onSaleCount = events.filter((e) => e.onSale).length;

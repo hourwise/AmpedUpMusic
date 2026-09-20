@@ -30,14 +30,16 @@ import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd, musicEventJsonLd } from '@/lib/seo.ts';
 import { paragraphs } from '@/lib/text.ts';
 import { SITE } from '@/lib/site.ts';
+import { applyPublicCache, canonicalEventRedirect } from './_rendering.ts';
 
 const { slug } = Astro.params;
 const services = getServices();
+applyPublicCache(Astro.response, 'live');
 const event = slug ? await services.events.getBySlug(slug) : null;
 
-if (event?.isPast) {
-  return Astro.redirect(`/past-gigs/${event.slug}`, 301);
-}
+// A finished gig has exactly one canonical URL: /past-gigs/<slug>.
+const redirect = canonicalEventRedirect(event, 'upcoming');
+if (redirect) return Astro.redirect(redirect.location, redirect.status);
 
 if (!event) {
   Astro.response.status = 404;

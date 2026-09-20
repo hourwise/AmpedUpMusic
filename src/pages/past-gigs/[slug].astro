@@ -22,15 +22,16 @@ import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd, musicEventJsonLd } from '@/lib/seo.ts';
 import { paragraphs } from '@/lib/text.ts';
 import { SITE } from '@/lib/site.ts';
+import { applyPublicCache, canonicalEventRedirect } from '../gigs/_rendering.ts';
 
 const { slug } = Astro.params;
 const services = getServices();
+applyPublicCache(Astro.response, 'live');
 const event = slug ? await services.events.getBySlug(slug) : null;
 
 // An event that has not happened yet belongs on /gigs.
-if (event && !event.isPast) {
-  return Astro.redirect(`/gigs/${event.slug}`, 301);
-}
+const redirect = canonicalEventRedirect(event, 'past');
+if (redirect) return Astro.redirect(redirect.location, redirect.status);
 
 if (!event) {
   Astro.response.status = 404;

@@ -22,8 +22,12 @@ import SocialStrip from '@/components/site/SocialStrip.astro';
 import { getServices } from '@/services/index.ts';
 import { organizationJsonLd } from '@/lib/seo.ts';
 import { SITE } from '@/lib/site.ts';
+import { applyPublicCache } from './gigs/_rendering.ts';
 
 const services = getServices();
+// The hero is the next unfinished event; a short shared-cache TTL keeps that
+// genuinely live without hammering D1 (see _rendering.ts).
+applyPublicCache(Astro.response, 'listing');
 
 const [next, upcoming, past, social, galleryPreview] = await Promise.all([
   services.events.nextEvent(),

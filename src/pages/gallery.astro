@@ -14,8 +14,10 @@ import Button from '@/components/ui/Button.astro';
 import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { SITE } from '@/lib/site.ts';
+import { applyPublicCache } from './gigs/_rendering.ts';
 
 const services = getServices();
+applyPublicCache(Astro.response, 'listing');
 const past = await services.events.listPast();
 const withGalleries = past.filter((event) => event.gallery.length > 0);
 const total = withGalleries.reduce((sum, event) => sum + event.gallery.length, 0);

@@ -7,8 +7,10 @@ import PageHeader from '@/components/site/PageHeader.astro';
 import { getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { plural } from '@/lib/text.ts';
+import { applyPublicCache } from './_rendering.ts';
 
 const services = getServices();
+applyPublicCache(Astro.response, 'listing');
 const events = await services.events.listUpcoming();
 
 const venues = [...new Set(events.map((e) => e.venue.city))].sort();
