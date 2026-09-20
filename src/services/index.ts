@@ -23,11 +23,14 @@
  * `wrangler dev` and in a deployed Worker, and falls back to `undefined` under
  * test - which is exactly the "no database in this mode" path below.
  *
- * SELECTION (AMPED-02B)
- * When `env.DB` is bound, venues and artists read from D1. Every other service
- * stays on the AMPED-01 fixtures until its own slice replaces it. AMPED-03A
- * removes the fixture fallback entirely and makes an unbound binding in
- * production fail loudly; that rule is deliberately NOT implemented here.
+ * SELECTION (AMPED-02C)
+ * When `env.DB` is bound, venues, artists and events read from D1. The artist
+ * service's `eventsFor()` is satisfied by the same D1 event repository, so no
+ * fixture event data is reachable through it any more. Media, social, admin,
+ * orders, door, enquiries, mailing list and audit stay on the AMPED-01
+ * fixtures until their own slices replace them. AMPED-03A removes the fixture
+ * fallback entirely and makes an unbound binding in production fail loudly;
+ * that rule is deliberately NOT implemented here.
  *
  * The `Services` object is cached per isolate. That is safe for read-only
  * repositories. Anything holding request-scoped state must NOT be cached here.
@@ -35,6 +38,7 @@
 
 import type { Services } from './contracts.ts';
 import { createD1ArtistService } from './d1/artists.ts';
+import { createD1EventRepository } from './d1/events.ts';
 import { createD1VenueService } from './d1/venues.ts';
 import { createMockServices } from './mock/index.ts';
 
@@ -47,10 +51,17 @@ export function createServices(db: D1Database | undefined): Services {
   const services = createMockServices();
   if (!db) return services;
 
+  const venues = createD1VenueService(db);
+  const events = createD1EventRepository(db);
+  // The artist service keeps reading artists from D1, but its `eventsFor()` now
+  // asks the D1 event repository rather than the fixture one.
+  const artists = createD1ArtistService(db, events);
+
   return {
     ...services,
-    venues: createD1VenueService(db),
-    artists: createD1ArtistService(db, services.artists),
+    venues,
+    artists,
+    events,
   };
 }
 
@@ -86,9 +97,9 @@ export function getServices(): Services {
  * Used by the admin shell to show an unmistakable scaffold banner, so nobody
  * mistakes the demo for the real thing.
  *
- * AMPED-02B swaps only venues and artists, so the events, orders and door
- * screens are still fixtures and the banner stays up. AMPED-03A owns the rule
- * that flips this to false once the database is bound.
+ * AMPED-02C swaps venues, artists and public events, but the admin event
+ * screens, orders and door are still fixtures, so the banner stays up.
+ * AMPED-03A owns the rule that flips this to false once the database is bound.
  */
 export function isScaffoldData(): boolean {
   return true;
