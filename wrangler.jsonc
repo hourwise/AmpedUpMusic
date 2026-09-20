@@ -1,12 +1,21 @@
 /**
  * Amped Up Music Promotions — Cloudflare Workers configuration.
  *
- * AMPED-01 SCAFFOLD ONLY.
- * No production resources exist yet. The D1 / R2 / KV bindings below are
- * commented out deliberately: they are declared as documentation of the
- * intended shape and must be created and wired up in their own slices
- * (AMPED-02A for D1, AMPED-05A for R2). Do not uncomment them without also
- * creating the resources and updating src/env.d.ts.
+ * AMPED-01 scaffold plus the AMPED-02A D1 binding.
+ *
+ * The `DB` binding below is deliberately LOCAL ONLY for this slice:
+ *  - `"remote": false` means every read and write goes to the local SQLite
+ *    file under `.wrangler/state` (git-ignored). No remote D1 database is
+ *    contacted and no Cloudflare account is required.
+ *  - There is no `database_id`. AMPED-02A creates no Cloudflare resource and
+ *    invents no identifier. The real id is added by the supervisor once a
+ *    remote database exists, in the slice that owns it.
+ *
+ * Migrations live in ./migrations and are applied by `npm run db:migrate`
+ * (src/db/migrations.ts), which keeps its own `schema_migrations` ledger.
+ * Do NOT run `wrangler d1 migrations apply` against this directory: that
+ * command keeps a different ledger (`d1_migrations`) and would apply the same
+ * files a second time.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -23,10 +32,18 @@
   },
   "vars": {
     "AMPED_ENV": "development"
-  }
+  },
 
-  // --- Reserved for later slices; DO NOT enable during AMPED-01 ---------------
-  // AMPED-02A: "d1_databases": [{ "binding": "DB", "database_name": "ampedup", "database_id": "<created-in-slice>" }],
+  // AMPED-02A: D1. Local only until a remote database exists; see the header.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ampedup",
+      "remote": false
+    }
+  ]
+
+  // --- Reserved for later slices; DO NOT enable early -----------------------
   // AMPED-05A: "r2_buckets":   [{ "binding": "MEDIA", "bucket_name": "ampedup-media" }],
   // AMPED-06B: "kv_namespaces": [{ "binding": "RESERVATIONS", "id": "<created-in-slice>" }],
   // AMPED-06B: "queues": { "producers": [{ "binding": "RESERVATION_SWEEP", "queue": "ampedup-reservation-sweep" }] }

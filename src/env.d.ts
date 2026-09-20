@@ -23,8 +23,13 @@ interface Env {
   /** "development" | "staging" | "production" */
   AMPED_ENV: string;
 
-  // AMPED-02A - Cloudflare D1
-  DB?: D1Database;
+  // AMPED-02A - Cloudflare D1.
+  // Required, not optional: once the binding exists, a missing one is a
+  // misconfiguration rather than a supported "no database" mode. Nothing in
+  // the application reads it yet - the fixture services still serve every
+  // page - but from AMPED-02B onwards a feature that needs the database must
+  // fail loudly rather than quietly fall back to fixtures.
+  DB: D1Database;
   // AMPED-05A - Cloudflare R2 for posters, heroes and galleries
   MEDIA?: R2Bucket;
   // AMPED-06B - short-lived ticket reservations
