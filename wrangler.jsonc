@@ -32,6 +32,13 @@
   },
   "vars": {
     "AMPED_ENV": "development"
+
+    // AMPED-04A: Cloudflare Access origin verification. Both values are
+    // non-secret and are supplied by the supervisor once a development Access
+    // application exists. They are deliberately NOT set here: unset config
+    // keeps every public route working and fails /admin and /api/admin closed.
+    // "CF_ACCESS_TEAM_DOMAIN": "https://<team-name>.cloudflareaccess.com",
+    // "CF_ACCESS_AUD": "<application-audience-tag>"
   },
 
   // AMPED-02A: D1. Local only until a remote database exists; see the header.

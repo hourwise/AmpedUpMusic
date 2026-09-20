@@ -37,8 +37,16 @@ const pathname = Astro.url.pathname;
 const isActive = (href: string) =>
   href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
 
-/** The operator identity comes from Cloudflare Access in AMPED-04A. */
-const operator = Astro.locals.operator ?? { email: 'anya@ampedupmusic.co.uk', name: 'Anya' };
+/**
+ * The operator identity is populated by the AMPED-04A middleware from the
+ * cryptographically verified Cloudflare Access JWT. There is no fallback: a
+ * fabricated identity here would look like a real signed-in administrator.
+ * Middleware denies every protected request without a verified operator, so
+ * in practice this is always set on an admin page; if it somehow is not, the
+ * label simply renders empty rather than inventing someone.
+ */
+const operator = Astro.locals.operator;
+const operatorLabel = operator?.name ?? operator?.email;
 ---
 
 <BaseLayout
@@ -55,7 +63,7 @@ const operator = Astro.locals.operator ?? { email: 'anya@ampedupmusic.co.uk', na
         <Wordmark href="/admin" size="sm" />
         <p class="admin-badge">Admin</p>
         <div class="admin-who">
-          <span class="admin-who-name">{operator.name ?? operator.email}</span>
+          <span class="admin-who-name">{operatorLabel}</span>
           <a class="admin-view-site" href="/">View site</a>
         </div>
       </div>

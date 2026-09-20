@@ -35,6 +35,13 @@ interface Env {
   // AMPED-06B - short-lived ticket reservations
   RESERVATIONS?: KVNamespace;
 
+  // AMPED-04A - Cloudflare Access origin verification. Non-secret config,
+  // supplied by the supervisor once a development Access application exists.
+  // Leaving either unset is safe: public routes are unaffected and the protected
+  // namespaces fail closed.
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+
   // --- Secrets. Server-side only; never referenced from client code. -------
   // AMPED-07 - SumUp Hosted Checkout
   SUMUP_API_KEY?: string;
@@ -52,11 +59,14 @@ interface Env {
 declare namespace App {
   interface Locals {
     /**
-     * The signed-in operator, populated from the Cloudflare Access JWT by the
-     * middleware added in AMPED-04A. Undefined during AMPED-01.
+     * The verified operator, populated by the AMPED-04A middleware from the
+     * cryptographically verified Cloudflare Access JWT. Undefined on public
+     * routes and whenever verification has not happened.
      */
     operator?: {
       email: string;
+      /** Stable Access subject, retained for future audit-log writes. */
+      sub: string;
       name?: string;
     };
   }
