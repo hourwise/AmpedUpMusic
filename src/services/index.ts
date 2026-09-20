@@ -11,30 +11,73 @@
  * WHY THERE IS NO `env` PARAMETER
  * The Cloudflare adapter used here (@astrojs/cloudflare 14, Astro 7) has
  * removed `Astro.locals.runtime.env`. Bindings are read inside server-only
- * modules with:
+ * modules from:
  *
  *     import { env } from 'cloudflare:workers';
  *
- * That is strictly better for this project than threading `env` through every
- * page: when AMPED-02A/03A land, this file is the only one that changes.
- * The intended shape at that point is:
+ * That is still the module used here. It is imported dynamically and guarded
+ * rather than declared statically for one concrete reason: `cloudflare:workers`
+ * only exists inside the Worker runtime. The Vitest suite runs in Node and
+ * imports this module, and a static import would make the whole suite fail to
+ * load. The dynamic form resolves to the real binding in `astro dev`, in
+ * `wrangler dev` and in a deployed Worker, and falls back to `undefined` under
+ * test - which is exactly the "no database in this mode" path below.
  *
- *     import { env } from 'cloudflare:workers';
- *     export function getServices(): Services {
- *       return env.DB ? createD1Services(env.DB) : createMockServices();
- *     }
+ * SELECTION (AMPED-02B)
+ * When `env.DB` is bound, venues and artists read from D1. Every other service
+ * stays on the AMPED-01 fixtures until its own slice replaces it. AMPED-03A
+ * removes the fixture fallback entirely and makes an unbound binding in
+ * production fail loudly; that rule is deliberately NOT implemented here.
  *
  * The `Services` object is cached per isolate. That is safe for read-only
  * repositories. Anything holding request-scoped state must NOT be cached here.
  */
 
 import type { Services } from './contracts.ts';
+import { createD1ArtistService } from './d1/artists.ts';
+import { createD1VenueService } from './d1/venues.ts';
 import { createMockServices } from './mock/index.ts';
+
+/**
+ * Assemble the service set for a database binding, or the fixture set when
+ * there is none. Exported so the DB-bound path can be proved directly in tests
+ * without stubbing the runtime module.
+ */
+export function createServices(db: D1Database | undefined): Services {
+  const services = createMockServices();
+  if (!db) return services;
+
+  return {
+    ...services,
+    venues: createD1VenueService(db),
+    artists: createD1ArtistService(db, services.artists),
+  };
+}
+
+/**
+ * Read the `DB` binding from the Worker runtime.
+ *
+ * The import is a literal so bundlers treat `cloudflare:workers` as external,
+ * and it is guarded so a non-Worker runtime (Vitest, a plain Node script)
+ * degrades to the fixture path instead of crashing on import.
+ */
+async function boundDatabase(): Promise<D1Database | undefined> {
+  try {
+    const runtime = (await import('cloudflare:workers')) as unknown as {
+      env?: { DB?: D1Database };
+    };
+    return runtime.env?.DB;
+  } catch {
+    return undefined;
+  }
+}
+
+const database = await boundDatabase();
 
 let cached: Services | null = null;
 
 export function getServices(): Services {
-  cached ??= createMockServices();
+  cached ??= createServices(database);
   return cached;
 }
 
@@ -42,6 +85,10 @@ export function getServices(): Services {
  * True while the application is running on fixtures rather than a database.
  * Used by the admin shell to show an unmistakable scaffold banner, so nobody
  * mistakes the demo for the real thing.
+ *
+ * AMPED-02B swaps only venues and artists, so the events, orders and door
+ * screens are still fixtures and the banner stays up. AMPED-03A owns the rule
+ * that flips this to false once the database is bound.
  */
 export function isScaffoldData(): boolean {
   return true;

@@ -6,10 +6,21 @@
  * repositories are swapped, this file should keep passing unchanged. If it
  * does not, the replacement has changed behaviour that the UI depends on.
  */
-import { describe, expect, it } from 'vitest';
-import { getServices } from '../src/services/index.ts';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createServices, getServices } from '../src/services/index.ts';
+import { createD1ArtistService } from '../src/services/d1/artists.ts';
+import { createD1VenueService } from '../src/services/d1/venues.ts';
 import { isPurchasable } from '../src/lib/availability.ts';
 import { PUBLIC_NAV, ADMIN_NAV } from '../src/lib/site.ts';
+import { openEphemeralDatabase } from '../src/db/local.ts';
+import { migrate } from '../src/db/migrations.ts';
+import { applySeed } from '../src/db/seed.ts';
+import type { ArtistService, VenueService } from '../src/services/contracts.ts';
+
+// The AMPED-02B contract tests start a Wrangler runtime and load the seed,
+// which takes longer than Vitest's default budget. The rest of this file keeps
+// its defaults.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const services = getServices();
 
@@ -303,5 +314,291 @@ describe('navigation', () => {
     // AMPED-04A protects /admin/* with a single Cloudflare Access application.
     // An admin route outside that prefix would be publicly reachable.
     ADMIN_NAV.forEach((item) => expect(item.href.startsWith('/admin')).toBe(true));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AMPED-02B - venue and artist persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Created-at/updated-at are the one field pair the fixture clock and the seed
+ * legitimately set to different instants (both "now", read independently), so
+ * parity is asserted on everything else.
+ */
+function withoutTimestamps<T extends { createdAt: string; updatedAt: string }>(
+  value: T,
+): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...value };
+  delete copy.createdAt;
+  delete copy.updatedAt;
+  return copy;
+}
+
+/** A service must return domain names, never the snake_case columns behind them. */
+function assertNoColumnNames(value: unknown, path = 'service'): void {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertNoColumnNames(entry, `${path}[${index}]`));
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    expect(key, `${path}.${key} looks like a database column`).not.toMatch(/_/);
+    assertNoColumnNames(child, `${path}.${key}`);
+  }
+}
+
+/** The same contract assertions, run against the fixture and D1 implementations. */
+function venueContract(label: string, service: () => VenueService): void {
+  describe(`venue contract (${label})`, () => {
+    it('returns every venue, alphabetically, deterministically', async () => {
+      const first = await service().list();
+      const second = await service().list();
+      expect(first.length).toBeGreaterThan(0);
+      expect(second.map((v) => v.id)).toEqual(first.map((v) => v.id));
+
+      const names = first.map((v) => v.name);
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'en-GB')));
+    });
+
+    it('resolves a listed slug back to the same venue', async () => {
+      const [first] = await service().list();
+      expect(first).toBeDefined();
+      const found = await service().getBySlug(first!.slug);
+      expect(found?.id).toBe(first!.id);
+    });
+
+    it('returns null for an unknown slug rather than throwing', async () => {
+      expect(await service().getBySlug('no-such-venue')).toBeNull();
+    });
+
+    it('exposes domain fields only, never database column names', async () => {
+      for (const venue of await service().list()) assertNoColumnNames(venue);
+    });
+  });
+}
+
+function artistContract(label: string, service: () => ArtistService): void {
+  describe(`artist contract (${label})`, () => {
+    it('returns every artist, alphabetically, deterministically', async () => {
+      const first = await service().list();
+      const second = await service().list();
+      expect(first.length).toBeGreaterThan(0);
+      expect(second.map((a) => a.id)).toEqual(first.map((a) => a.id));
+
+      const names = first.map((a) => a.name);
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'en-GB')));
+    });
+
+    it('resolves a listed slug back to the same artist', async () => {
+      const [first] = await service().list();
+      expect(first).toBeDefined();
+      const found = await service().getBySlug(first!.slug);
+      expect(found?.id).toBe(first!.id);
+    });
+
+    it('returns null for an unknown slug rather than throwing', async () => {
+      expect(await service().getBySlug('no-such-artist')).toBeNull();
+    });
+
+    it('exposes domain fields only, never database column names', async () => {
+      for (const artist of await service().list()) assertNoColumnNames(artist);
+    });
+
+    it('still returns the bill an artist has appeared on', async () => {
+      const glassHearts = (await service().list()).find((a) => a.slug === 'the-glass-hearts');
+      expect(glassHearts).toBeDefined();
+
+      const events = await service().eventsFor(glassHearts!.id);
+      expect(events.length).toBeGreaterThan(0);
+      for (const event of events) {
+        expect(event.lineup.some((entry) => entry.artist.id === glassHearts!.id)).toBe(true);
+      }
+    });
+  });
+}
+
+describe('AMPED-02B venue and artist persistence', () => {
+  let database: Awaited<ReturnType<typeof openEphemeralDatabase>>;
+  let db: D1Database;
+  let d1Venues: VenueService;
+  let d1Artists: ArtistService;
+
+  beforeAll(async () => {
+    // A throwaway database, migrated and seeded from empty: nothing here reads
+    // the developer's persistent local database or its reservation state.
+    database = await openEphemeralDatabase();
+    db = database.db;
+    await migrate(db);
+    await applySeed(db);
+
+    d1Venues = createD1VenueService(db);
+    d1Artists = createD1ArtistService(db, services.artists);
+  });
+
+  afterAll(async () => {
+    await database.dispose();
+  });
+
+  venueContract('mock', () => services.venues);
+  venueContract('D1', () => d1Venues);
+  artistContract('mock', () => services.artists);
+  artistContract('D1', () => d1Artists);
+
+  it('D1 venue list matches the mock list, field for field', async () => {
+    const fromD1 = await d1Venues.list();
+    const mock = await services.venues.list();
+
+    expect(fromD1.map(withoutTimestamps)).toEqual(mock.map(withoutTimestamps));
+    expect(fromD1.map((v) => v.id)).toEqual(mock.map((v) => v.id));
+  });
+
+  it('D1 venue getBySlug matches the mock for every slug', async () => {
+    for (const venue of await services.venues.list()) {
+      const fromD1 = await d1Venues.getBySlug(venue.slug);
+      const mock = await services.venues.getBySlug(venue.slug);
+      expect(fromD1 && withoutTimestamps(fromD1)).toEqual(mock && withoutTimestamps(mock));
+    }
+  });
+
+  it('D1 artist list matches the mock list, field for field', async () => {
+    const fromD1 = await d1Artists.list();
+    const mock = await services.artists.list();
+
+    expect(fromD1.map(withoutTimestamps)).toEqual(mock.map(withoutTimestamps));
+    expect(fromD1.map((a) => a.id)).toEqual(mock.map((a) => a.id));
+  });
+
+  it('D1 artist getBySlug matches the mock for every slug', async () => {
+    for (const artist of await services.artists.list()) {
+      const fromD1 = await d1Artists.getBySlug(artist.slug);
+      const mock = await services.artists.getBySlug(artist.slug);
+      expect(fromD1 && withoutTimestamps(fromD1)).toEqual(mock && withoutTimestamps(mock));
+    }
+  });
+
+  it('reads real seeded timestamps rather than a fixture clock', async () => {
+    const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    for (const venue of await d1Venues.list()) {
+      expect(venue.createdAt).toMatch(iso);
+      expect(venue.updatedAt).toMatch(iso);
+    }
+    for (const artist of await d1Artists.list()) {
+      expect(artist.createdAt).toMatch(iso);
+      expect(artist.updatedAt).toMatch(iso);
+    }
+  });
+
+  it('selects D1 venues and artists only when DB is bound', async () => {
+    const bound = createServices(db);
+    const unbound = createServices(undefined);
+    const stamp = new Date().toISOString();
+
+    await db
+      .prepare(
+        'insert into venues (id, name, slug, address_line1, city, postcode, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .bind(
+        'ven_02b_probe',
+        'Probe Rooms',
+        'probe-rooms-02b',
+        '1 Probe Street',
+        'Preston',
+        'PR1 1AA',
+        stamp,
+        stamp,
+      )
+      .run();
+
+    try {
+      expect((await bound.venues.list()).some((v) => v.id === 'ven_02b_probe')).toBe(true);
+      expect((await unbound.venues.list()).some((v) => v.id === 'ven_02b_probe')).toBe(false);
+    } finally {
+      await db.prepare('delete from venues where id = ?').bind('ven_02b_probe').run();
+    }
+  });
+
+  it('getServices() itself selects D1 when the runtime exposes a DB binding', async () => {
+    vi.resetModules();
+    vi.doMock('cloudflare:workers', () => ({ env: { DB: db } }));
+    try {
+      const fresh = await import('../src/services/index.ts');
+      const bound = fresh.getServices();
+      const stamp = new Date().toISOString();
+
+      await db
+        .prepare(
+          'insert into venues (id, name, slug, address_line1, city, postcode, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .bind(
+          'ven_02b_getservices',
+          'GetServices Probe',
+          'getservices-probe',
+          '1 Probe Street',
+          'Preston',
+          'PR1 1AA',
+          stamp,
+          stamp,
+        )
+        .run();
+
+      try {
+        expect((await bound.venues.list()).some((v) => v.id === 'ven_02b_getservices')).toBe(true);
+        expect(bound.venues).not.toBe(services.venues);
+      } finally {
+        await db.prepare('delete from venues where id = ?').bind('ven_02b_getservices').run();
+      }
+    } finally {
+      vi.doUnmock('cloudflare:workers');
+      vi.resetModules();
+    }
+  });
+
+  it('leaves every other service on the fixtures this slice', async () => {
+    const bound = createServices(db);
+    const unbound = createServices(undefined);
+
+    expect((await bound.events.listUpcoming()).map((e) => e.id)).toEqual(
+      (await unbound.events.listUpcoming()).map((e) => e.id),
+    );
+    expect((await bound.admin.listAll()).map((e) => e.id)).toEqual(
+      (await unbound.admin.listAll()).map((e) => e.id),
+    );
+    expect((await bound.orders.listRecent(5)).map((o) => o.order.id)).toEqual(
+      (await unbound.orders.listRecent(5)).map((o) => o.order.id),
+    );
+    expect((await bound.enquiries.list()).map((e) => e.enquiry.id)).toEqual(
+      (await unbound.enquiries.list()).map((e) => e.enquiry.id),
+    );
+    expect(await bound.mailingList.counts()).toEqual(await unbound.mailingList.counts());
+    expect((await bound.social.listFeatured()).map((s) => s.post.id)).toEqual(
+      (await unbound.social.listFeatured()).map((s) => s.post.id),
+    );
+    expect((await bound.media.get('med_og_default'))?.url).toBe(
+      (await unbound.media.get('med_og_default'))?.url,
+    );
+    expect((await bound.audit.listRecent(3)).map((a) => a.action)).toEqual(
+      (await unbound.audit.listRecent(3)).map((a) => a.action),
+    );
+  });
+
+  it('serves the reads /artists and /admin/venues depend on', async () => {
+    // /artists: list + per-artist image lookup through the media service.
+    const artists = await d1Artists.list();
+    expect(artists.length).toBeGreaterThan(0);
+    for (const artist of artists) {
+      if (!artist.imageAssetId) continue;
+      const asset = await services.media.get(artist.imageAssetId);
+      expect(asset, `no media for ${artist.id}`).toBeTruthy();
+    }
+
+    // /admin/venues: venue list joined to the admin event list by venue id.
+    const venues = await d1Venues.list();
+    const knownVenueIds = new Set(venues.map((v) => v.id));
+    const gigs = await services.admin.listAll();
+    expect(gigs.length).toBeGreaterThan(0);
+    for (const gig of gigs) {
+      expect(knownVenueIds.has(gig.venue.id), `unknown venue ${gig.venue.id}`).toBe(true);
+    }
   });
 });
