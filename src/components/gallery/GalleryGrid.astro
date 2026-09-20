@@ -1,0 +1,250 @@
+---
+/**
+ * Photograph grid with a lightbox.
+ *
+ * The lightbox is a native <dialog>, so keyboard users get focus trapping and
+ * Escape without a library, and arrow keys move between images. Without JS the
+ * grid is still a perfectly good set of images; nothing is hidden.
+ */
+import type { MediaAsset } from '@/types/domain.ts';
+
+interface Props {
+  assets: MediaAsset[];
+  /** Emphasises the first image. Used on event galleries. */
+  featureFirst?: boolean;
+  /** Credit line shown under the grid. */
+  credit?: string;
+  creditUrl?: string;
+}
+
+const { assets, featureFirst = false, credit, creditUrl } = Astro.props;
+---
+
+<div class="gallery">
+  <ul class:list={['gallery-grid', featureFirst && 'gallery-feature-first']}>
+    {
+      assets.map((asset, index) => (
+        <li class="gallery-item">
+          <button
+            type="button"
+            class="gallery-button"
+            data-lightbox-open={String(index)}
+            aria-label={`Open photograph ${index + 1} of ${assets.length}: ${asset.alt}`}
+          >
+            <img src={asset.url} alt={asset.alt} loading={index < 4 ? 'eager' : 'lazy'} decoding="async" />
+          </button>
+        </li>
+      ))
+    }
+  </ul>
+
+  {
+    credit && (
+      <p class="gallery-credit">
+        Photographs by {creditUrl ? <a href={creditUrl} rel="noopener">{credit}</a> : credit}
+      </p>
+    )
+  }
+</div>
+
+<dialog class="lightbox" data-lightbox aria-label="Photograph viewer">
+  <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close photograph">
+    <span aria-hidden="true">Close</span>
+  </button>
+  <figure class="lightbox-figure">
+    <img data-lightbox-image src="" alt="" />
+    <figcaption data-lightbox-caption></figcaption>
+  </figure>
+  <div class="lightbox-nav">
+    <button type="button" data-lightbox-prev aria-label="Previous photograph">Previous</button>
+    <span data-lightbox-counter aria-live="polite"></span>
+    <button type="button" data-lightbox-next aria-label="Next photograph">Next</button>
+  </div>
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>('[data-lightbox]');
+  const image = document.querySelector<HTMLImageElement>('[data-lightbox-image]');
+  const caption = document.querySelector<HTMLElement>('[data-lightbox-caption]');
+  const counter = document.querySelector<HTMLElement>('[data-lightbox-counter]');
+  const triggers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-lightbox-open]'));
+
+  const sources = triggers.map((trigger) => {
+    const img = trigger.querySelector('img');
+    return { src: img?.getAttribute('src') ?? '', alt: img?.getAttribute('alt') ?? '' };
+  });
+
+  let current = 0;
+
+  function show(index: number) {
+    if (!image || sources.length === 0) return;
+    current = (index + sources.length) % sources.length;
+    const item = sources[current];
+    if (!item) return;
+    image.src = item.src;
+    image.alt = item.alt;
+    if (caption) caption.textContent = item.alt;
+    if (counter) counter.textContent = `${current + 1} of ${sources.length}`;
+  }
+
+  triggers.forEach((trigger, index) => {
+    trigger.addEventListener('click', () => {
+      show(index);
+      dialog?.showModal();
+    });
+  });
+
+  document.querySelector('[data-lightbox-close]')?.addEventListener('click', () => dialog?.close());
+  document.querySelector('[data-lightbox-prev]')?.addEventListener('click', () => show(current - 1));
+  document.querySelector('[data-lightbox-next]')?.addEventListener('click', () => show(current + 1));
+
+  dialog?.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight') show(current + 1);
+    if (event.key === 'ArrowLeft') show(current - 1);
+  });
+
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+</script>
+
+<style>
+  .gallery-grid {
+    display: grid;
+    gap: var(--s-2);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  }
+
+  .gallery-item {
+    margin: 0;
+  }
+
+  .gallery-button {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    overflow: hidden;
+    background: var(--ink-inset);
+    cursor: zoom-in;
+    transition: border-color var(--fast) var(--ease), transform var(--normal) var(--ease);
+  }
+
+  .gallery-button:hover {
+    border-color: var(--volt);
+    transform: translateY(-2px);
+  }
+
+  .gallery-button img {
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+  }
+
+  @media (min-width: 46rem) {
+    .gallery-feature-first .gallery-item:first-child {
+      grid-column: span 2;
+      grid-row: span 2;
+    }
+
+    .gallery-feature-first .gallery-item:first-child img {
+      aspect-ratio: 3 / 2;
+      height: 100%;
+    }
+  }
+
+  .gallery-credit {
+    margin-top: var(--s-4);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .gallery-credit a {
+    color: var(--volt);
+  }
+
+  /* --- Lightbox ---------------------------------------------------------- */
+
+  .lightbox {
+    width: min(64rem, calc(100vw - 2rem));
+    max-width: none;
+    padding: var(--s-4);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-lg);
+    background: var(--ink-base);
+    color: var(--text);
+  }
+
+  .lightbox::backdrop {
+    background: rgb(2 2 4 / 92%);
+  }
+
+  .lightbox-figure {
+    margin: 0;
+  }
+
+  .lightbox-figure img {
+    width: 100%;
+    max-height: 72svh;
+    object-fit: contain;
+    border-radius: var(--r-sm);
+    background: var(--ink-inset);
+  }
+
+  .lightbox-figure figcaption {
+    margin-top: var(--s-3);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: var(--s-3);
+    right: var(--s-3);
+    min-height: 2.5rem;
+    padding: var(--s-2) var(--s-4);
+    background: rgb(8 8 11 / 80%);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .lightbox-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    margin-top: var(--s-4);
+  }
+
+  .lightbox-nav button {
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-4);
+    background: transparent;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    color: var(--text-muted);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .lightbox-nav button:hover {
+    color: var(--volt);
+    border-color: var(--volt);
+  }
+
+  .lightbox-nav span {
+    font-family: var(--font-mono);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+</style>

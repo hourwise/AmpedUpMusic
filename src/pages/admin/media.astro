@@ -1,0 +1,296 @@
+---
+/**
+ * Photos and artwork.
+ *
+ * Organised by gig rather than as one undifferentiated library, because that
+ * is how the work arrives: a photographer sends over the set from Saturday,
+ * and it all belongs to Saturday.
+ *
+ * Alt text is presented as a required field with the image next to it, not as
+ * an afterthought in a properties panel. An image without alt text should not
+ * reach the website, and the interface should make that obvious rather than
+ * enforcing it with an error at the last moment.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Button from '@/components/ui/Button.astro';
+import Field from '@/components/ui/Field.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { SITE } from '@/lib/site.ts';
+
+const services = getServices();
+const gigs = await services.admin.listAll();
+
+const sets = await Promise.all(
+  gigs.map(async (gig) => ({ gig, assets: await services.media.listForEvent(gig.id) })),
+);
+
+const withAssets = sets.filter((set) => set.assets.length > 0).reverse();
+const totalAssets = withAssets.reduce((sum, set) => sum + set.assets.length, 0);
+const missingAlt = withAssets
+  .flatMap((set) => set.assets)
+  .filter((asset) => asset.alt.trim().length === 0).length;
+
+const GIG_OPTIONS = [
+  { value: '', label: 'Choose a gig...' },
+  ...gigs.map((gig) => ({ value: gig.id, label: `${gig.title} - ${gig.shortDateLabel}` })),
+];
+
+const ROLE_OPTIONS = [
+  { value: 'gallery', label: 'Gallery photograph' },
+  { value: 'poster', label: 'Poster' },
+  { value: 'hero', label: 'Hero photograph' },
+  { value: 'artist', label: 'Artist image' },
+];
+---
+
+<AdminLayout
+  title="Photos"
+  subtitle={`${totalAssets} images across ${withAssets.length} gigs. Galleries appear on the past gig pages and on the website gallery.`}
+  wide
+>
+  <Button slot="actions" variant="volt" size="md" href="#upload">Add photos</Button>
+
+  {
+    missingAlt > 0 && (
+      <Callout tone="warn" label="Needs attention" title={`${missingAlt} images have no description`}>
+        <p>
+          Images without a description cannot be read by anyone using a screen reader. Add one to
+          each before the gig page goes live.
+        </p>
+      </Callout>
+    )
+  }
+
+  <section class="upload-panel surface" id="upload" aria-labelledby="upload-heading">
+    <h2 class="display display-sm" id="upload-heading">Add photos</h2>
+
+    <div class="dropzone">
+      <p class="dropzone-title">Drop photographs here</p>
+      <p class="dropzone-hint">
+        JPG or PNG, up to 8&nbsp;MB each. You can select as many as you like at once.
+      </p>
+      <Button variant="outline" size="md">Choose files</Button>
+    </div>
+
+    <div class="upload-grid">
+      <Field as="select" name="eventId" label="Which gig are these from" required options={GIG_OPTIONS} />
+      <Field as="select" name="role" label="What are they" required options={ROLE_OPTIONS} />
+      <Field
+        name="credit"
+        label="Photographer"
+        value={SITE.photographyPartner.name}
+        hint="Credited under the gallery."
+      />
+    </div>
+
+    <ScaffoldNote slice="AMPED-05A">
+      Uploads are not connected. In V1 each file goes to Cloudflare R2 under a safe unique key with
+      a MIME and size check, and the record stores dimensions, credit and alt text. AMPED-05B links
+      the set to the event gallery and the AnyaParallax gallery URL.
+    </ScaffoldNote>
+  </section>
+
+  {
+    withAssets.length > 0 ? (
+      withAssets.map((set) => (
+        <section class="media-set" aria-labelledby={`set-${set.gig.id}`}>
+          <header class="media-set-head">
+            <div>
+              <p class="eyebrow">{set.gig.shortDateLabel}</p>
+              <h2 class="display display-sm" id={`set-${set.gig.id}`}>
+                <a href={`/admin/gigs/${set.gig.id}`}>{set.gig.title}</a>
+              </h2>
+            </div>
+            <p class="media-set-count">
+              {set.assets.length} {set.assets.length === 1 ? 'image' : 'images'}
+            </p>
+          </header>
+
+          <ul class="media-list">
+            {set.assets.map((asset) => (
+              <li class="media-item">
+                <img src={asset.url} alt={asset.alt} loading="lazy" decoding="async" />
+                <div class="media-meta">
+                  <p class="media-role">{asset.role}</p>
+                  <label class="media-alt-label" for={`alt-${asset.id}`}>
+                    Description
+                  </label>
+                  <textarea id={`alt-${asset.id}`} class="media-alt" rows={2}>{asset.alt}</textarea>
+                  <div class="media-actions">
+                    <Button variant="ghost" size="sm">Save</Button>
+                    <Button variant="danger" size="sm">Remove</Button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {set.gig.photography?.galleryUrl && (
+            <p class="media-link">
+              Linked to the full {set.gig.photography.credit} gallery:{' '}
+              <a href={set.gig.photography.galleryUrl} rel="noopener">
+                {set.gig.photography.galleryUrl}
+              </a>
+            </p>
+          )}
+        </section>
+      ))
+    ) : (
+      <EmptyState
+        title="No photographs yet"
+        body="Add the set from a gig and it appears on the past gig page and in the website gallery automatically."
+        actionHref="#upload"
+        actionLabel="Add photos"
+      />
+    )
+  }
+</AdminLayout>
+
+<style>
+  .upload-panel {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+    scroll-margin-top: calc(var(--header-h) + var(--s-6));
+  }
+
+  .dropzone {
+    display: grid;
+    justify-items: center;
+    gap: var(--s-2);
+    padding: var(--s-7) var(--s-4);
+    border: 2px dashed var(--hairline-strong);
+    border-radius: var(--r);
+    text-align: center;
+    background: rgb(255 255 255 / 2%);
+  }
+
+  .dropzone-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-1);
+  }
+
+  .dropzone-hint {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    max-width: 40ch;
+  }
+
+  .upload-grid {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  @media (min-width: 44rem) {
+    .upload-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .media-set {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .media-set-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding-bottom: var(--s-2);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .media-set-head a {
+    text-decoration: none;
+  }
+
+  .media-set-head a:hover {
+    color: var(--volt);
+  }
+
+  .media-set-count {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .media-list {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  }
+
+  .media-item {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .media-item img {
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+    background: var(--ink-inset);
+  }
+
+  .media-meta {
+    display: grid;
+    gap: var(--s-1);
+    padding: 0 var(--s-1) var(--s-1);
+  }
+
+  .media-role {
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .media-alt-label {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .media-alt {
+    width: 100%;
+    padding: var(--s-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-xs);
+    background: var(--ink-inset);
+    color: var(--text);
+    font-size: var(--step--2);
+    resize: vertical;
+  }
+
+  .media-alt:focus-visible {
+    border-color: var(--volt);
+  }
+
+  .media-actions {
+    display: flex;
+    gap: var(--s-2);
+    margin-top: var(--s-1);
+  }
+
+  .media-link {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .media-link a {
+    color: var(--volt);
+  }
+</style>

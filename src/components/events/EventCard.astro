@@ -1,0 +1,322 @@
+---
+/**
+ * The gig card. Used on the homepage, /gigs, /tickets, /past-gigs and artist
+ * pages, so it has to answer the whole question on its own: who, when, where,
+ * how much, can I still get in.
+ *
+ * Interaction model: the whole card is clickable via a stretched link on the
+ * title, which keeps one link in the accessibility tree instead of three
+ * competing ones. The ticket button, when shown, sits above the stretched
+ * link so it stays independently clickable.
+ */
+import AvailabilityBadge from './AvailabilityBadge.astro';
+import PosterImage from './PosterImage.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Button from '@/components/ui/Button.astro';
+import { dateBlockParts, machineDate, relativeDayLabel } from '@/lib/dates.ts';
+import { AGE_RESTRICTION_SHORT } from '@/lib/text.ts';
+import type { EventView } from '@/types/view.ts';
+
+interface Props {
+  event: EventView;
+  /** `feature` is wider, with the poster beside the detail. */
+  layout?: 'stacked' | 'feature';
+  /** Eager-load the poster for the first card in a list. */
+  priority?: boolean;
+  /** Hide the ticket button in contexts that already have one. */
+  hideCta?: boolean;
+}
+
+const { event, layout = 'stacked', priority = false, hideCta = false } = Astro.props;
+
+const parts = dateBlockParts(event.startsAt);
+const relative = event.isPast ? null : relativeDayLabel(event.startsAt);
+const headline = event.lineup[0];
+const support = event.lineup.slice(1);
+const isDisrupted = event.status === 'cancelled' || event.status === 'postponed';
+---
+
+<article class:list={['card', `card-${layout}`, isDisrupted && 'card-disrupted']}>
+  <div class="card-media">
+    <PosterImage
+      src={event.posterUrl}
+      alt={event.posterAlt}
+      title={event.title}
+      priority={priority}
+    />
+    <div class="card-date" aria-hidden="true">
+      <span class="card-date-day">{parts.day}</span>
+      <span class="card-date-month">{parts.month}</span>
+    </div>
+    {
+      isDisrupted && (
+        <div class="card-flag">
+          <Badge tone="stop" dot>{event.status === 'cancelled' ? 'Cancelled' : 'Postponed'}</Badge>
+        </div>
+      )
+    }
+  </div>
+
+  <div class="card-body">
+    <p class="card-when eyebrow">
+      <time datetime={machineDate(event.startsAt)}>{event.dayLabel}</time>
+      {relative && <span class="card-relative">{relative}</span>}
+    </p>
+
+    <h3 class="card-title display display-sm">
+      <a href={event.href} class="card-link">{event.title}</a>
+    </h3>
+
+    {
+      support.length > 0 && (
+        <p class="card-support">
+          with {support.map((entry) => entry.artist.name).join(', ')}
+        </p>
+      )
+    }
+
+    <p class="card-venue">
+      {event.venue.name}
+      <span class="card-sep" aria-hidden="true">/</span>
+      {event.venue.city}
+    </p>
+
+    <div class="card-meta">
+      <span class="card-age">{AGE_RESTRICTION_SHORT[event.ageRestriction]}</span>
+      <span class="card-doors">Doors {event.doorsLabel}</span>
+      {
+        headline?.setTime && !event.isPast && (
+          <span class="card-headline-time">{headline.artist.name} on at {event.startsLabel}</span>
+        )
+      }
+    </div>
+
+    <div class="card-foot">
+      {
+        event.isPast ? (
+          <span class="card-past-note">
+            {event.gallery.length > 0 ? `${event.gallery.length} photographs` : 'Gig archive'}
+          </span>
+        ) : (
+          <>
+            <AvailabilityBadge state={event.availability} />
+            {event.priceFromLabel && !isDisrupted && (
+              <span class="card-price">
+                <span class="card-price-from">from</span> {event.priceFromLabel}
+              </span>
+            )}
+          </>
+        )
+      }
+
+      {
+        !hideCta && !event.isPast && (
+          <div class="card-cta">
+            <Button
+              href={event.href}
+              variant={event.onSale ? 'volt' : 'outline'}
+              size="sm"
+              aria-label={
+                event.onSale
+                  ? `Buy tickets for ${event.title} on ${event.dateLabel}`
+                  : `See details for ${event.title} on ${event.dateLabel}`
+              }
+            >
+              {event.onSale ? 'Tickets' : 'Details'}
+            </Button>
+          </div>
+        )
+      }
+    </div>
+  </div>
+</article>
+
+<style>
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--ink-raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    transition:
+      border-color var(--normal) var(--ease),
+      transform var(--normal) var(--ease),
+      box-shadow var(--normal) var(--ease);
+  }
+
+  .card:hover,
+  .card:focus-within {
+    border-color: var(--hairline-strong);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+  }
+
+  .card-media {
+    position: relative;
+  }
+
+  /* Stacked date tab, so the date is readable before the poster loads. */
+  .card-date {
+    position: absolute;
+    left: var(--s-3);
+    top: var(--s-3);
+    display: grid;
+    justify-items: center;
+    padding: var(--s-2) var(--s-3);
+    border-radius: var(--r-sm);
+    background: rgb(8 8 11 / 82%);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--hairline-strong);
+    font-family: var(--font-display);
+    line-height: 1;
+  }
+
+  .card-date-day {
+    font-size: var(--step-1);
+    font-weight: 900;
+    font-stretch: 76%;
+  }
+
+  .card-date-month {
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    color: var(--volt);
+    margin-top: 0.2em;
+  }
+
+  .card-flag {
+    position: absolute;
+    right: var(--s-3);
+    top: var(--s-3);
+  }
+
+  .card-disrupted .card-media :global(.poster-img) {
+    filter: grayscale(0.75) contrast(0.85);
+  }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    padding: var(--s-4) var(--s-4) var(--s-4);
+    flex: 1;
+  }
+
+  .card-when {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s-2);
+  }
+
+  .card-relative {
+    color: var(--volt);
+  }
+
+  .card-title {
+    font-size: var(--step-2);
+    margin-top: var(--s-1);
+  }
+
+  .card-link::after {
+    /* Stretched link: the whole card is the hit target. */
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .card-link {
+    text-decoration: none;
+  }
+
+  .card:hover .card-link {
+    color: var(--volt);
+  }
+
+  .card-support {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .card-venue {
+    font-size: var(--step--1);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .card-sep {
+    color: var(--text-faint);
+    margin-inline: 0.35em;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-1) var(--s-3);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    margin-top: auto;
+    padding-top: var(--s-2);
+  }
+
+  .card-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    margin-top: var(--s-2);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .card-price {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-0);
+  }
+
+  .card-price-from {
+    font-size: var(--step--2);
+    font-weight: 600;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .card-past-note {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: var(--font-display);
+  }
+
+  .card-cta {
+    margin-left: auto;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* --- Feature layout ----------------------------------------------------- */
+
+  @media (min-width: 46rem) {
+    .card-feature {
+      flex-direction: row;
+    }
+
+    .card-feature .card-media {
+      flex: 0 0 15rem;
+    }
+
+    .card-feature .card-body {
+      padding: var(--s-5) var(--s-5);
+    }
+
+    .card-feature .card-title {
+      font-size: var(--step-3);
+    }
+  }
+</style>

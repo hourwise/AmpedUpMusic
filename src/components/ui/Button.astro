@@ -1,0 +1,208 @@
+---
+/**
+ * The one button in the system.
+ *
+ * Renders as <a> when `href` is given and <button> otherwise, so a link never
+ * pretends to be a button for a screen reader or a middle-click.
+ *
+ * Variants:
+ *   volt    the primary Buy Tickets action. Loud on purpose. One per view.
+ *   solid   secondary filled action
+ *   outline tertiary
+ *   ghost   quiet, for toolbars and card footers
+ *   danger  destructive confirmation
+ */
+interface Props {
+  href?: string;
+  type?: 'button' | 'submit' | 'reset';
+  variant?: 'volt' | 'solid' | 'outline' | 'ghost' | 'danger';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** Fills its container. Used for mobile ticket CTAs and admin action tiles. */
+  block?: boolean;
+  disabled?: boolean;
+  /** Renders as visually disabled but still focusable, with an explanation. */
+  inert?: boolean;
+  class?: string;
+  id?: string;
+  'aria-label'?: string;
+  'data-action'?: string;
+  rel?: string;
+  target?: string;
+}
+
+const {
+  href,
+  type = 'button',
+  variant = 'solid',
+  size = 'md',
+  block = false,
+  disabled = false,
+  inert = false,
+  class: className = '',
+  ...rest
+} = Astro.props;
+
+const classes = [
+  'btn',
+  `btn-${variant}`,
+  `btn-${size}`,
+  block ? 'btn-block' : '',
+  inert ? 'btn-inert' : '',
+  className,
+]
+  .filter(Boolean)
+  .join(' ');
+
+const Tag = href ? 'a' : 'button';
+---
+
+<Tag
+  class={classes}
+  href={href}
+  type={href ? undefined : type}
+  disabled={href ? undefined : disabled}
+  aria-disabled={inert ? 'true' : undefined}
+  {...rest}
+>
+  <span class="btn-label"><slot /></span>
+</Tag>
+
+<style>
+  .btn {
+    --btn-bg: var(--ink-raised-2);
+    --btn-fg: var(--text);
+    --btn-border: var(--hairline-strong);
+    --btn-glow: none;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+    border: 1px solid var(--btn-border);
+    border-radius: var(--r-pill);
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    text-align: center;
+    box-shadow: var(--btn-glow);
+    transition:
+      transform var(--fast) var(--ease),
+      background-color var(--fast) var(--ease),
+      border-color var(--fast) var(--ease),
+      box-shadow var(--normal) var(--ease);
+    /* 44px minimum target on every size, including `sm`. */
+    min-height: 2.75rem;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .btn:active {
+    transform: translateY(0) scale(0.985);
+  }
+
+  .btn[disabled],
+  .btn-inert {
+    cursor: not-allowed;
+    opacity: 0.45;
+    transform: none !important;
+    box-shadow: none;
+  }
+
+  /* --- Variants ---------------------------------------------------------- */
+
+  .btn-volt {
+    --btn-bg: var(--volt);
+    --btn-fg: var(--text-on-accent);
+    --btn-border: var(--volt);
+    --btn-glow: var(--glow-volt);
+    font-weight: 800;
+  }
+
+  .btn-volt:hover {
+    --btn-bg: #f2ff6b;
+    --btn-glow: 0 0 44px -4px rgb(232 255 58 / 60%);
+  }
+
+  .btn-solid:hover {
+    --btn-bg: #272733;
+    --btn-border: var(--hairline-strong);
+  }
+
+  .btn-outline {
+    --btn-bg: transparent;
+    --btn-border: var(--hairline-strong);
+  }
+
+  .btn-outline:hover {
+    --btn-bg: rgb(255 255 255 / 6%);
+    --btn-border: var(--volt);
+    --btn-fg: var(--volt);
+  }
+
+  .btn-ghost {
+    --btn-bg: transparent;
+    --btn-border: transparent;
+    --btn-fg: var(--text-muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .btn-ghost:hover {
+    --btn-bg: rgb(255 255 255 / 7%);
+    --btn-fg: var(--text);
+  }
+
+  .btn-danger {
+    --btn-bg: transparent;
+    --btn-border: color-mix(in srgb, var(--stop) 55%, transparent);
+    --btn-fg: var(--stop);
+  }
+
+  .btn-danger:hover {
+    --btn-bg: color-mix(in srgb, var(--stop) 14%, transparent);
+    --btn-border: var(--stop);
+  }
+
+  /* --- Sizes ------------------------------------------------------------- */
+
+  .btn-sm {
+    padding: var(--s-2) var(--s-4);
+    font-size: var(--step--2);
+  }
+
+  .btn-md {
+    padding: var(--s-3) var(--s-5);
+    font-size: var(--step--1);
+  }
+
+  .btn-lg {
+    padding: var(--s-3) var(--s-6);
+    font-size: var(--step-0);
+    min-height: 3.25rem;
+  }
+
+  .btn-xl {
+    padding: var(--s-4) var(--s-7);
+    font-size: var(--step-1);
+    min-height: 3.75rem;
+    font-stretch: 88%;
+  }
+
+  .btn-block {
+    display: flex;
+    width: 100%;
+  }
+
+  .btn-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+</style>

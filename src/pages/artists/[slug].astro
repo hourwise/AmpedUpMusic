@@ -1,0 +1,191 @@
+---
+/**
+ * An individual artist.
+ *
+ * The build plan lists /artists/[slug] as optional. It is included because it
+ * costs almost nothing once the records exist and it gives every act a page
+ * to link to from their own socials - which is free promotion pointing back at
+ * the ticket pages, and the single most useful thing we can offer a band.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import PosterImage from '@/components/events/PosterImage.astro';
+import SocialLinks from '@/components/site/SocialLinks.astro';
+import NotFound from '@/components/site/NotFound.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+import { paragraphs } from '@/lib/text.ts';
+
+const { slug } = Astro.params;
+const services = getServices();
+const artist = slug ? await services.artists.getBySlug(slug) : null;
+
+if (!artist) {
+  Astro.response.status = 404;
+}
+
+const events = artist ? await services.artists.eventsFor(artist.id) : [];
+const upcoming = events.filter((e) => !e.isPast);
+const past = events.filter((e) => e.isPast);
+const image =
+  artist?.imageAssetId ? (await services.media.get(artist.imageAssetId))?.url : undefined;
+const bio = artist?.biography ? paragraphs(artist.biography) : [];
+---
+
+{
+  !artist ? (
+    <SiteLayout title="Artist not found" description="Artist not found." noindex>
+      <NotFound
+        title="We cannot find that artist"
+        body="They may not have played for us yet. Here is what is coming up."
+      />
+    </SiteLayout>
+  ) : (
+    <SiteLayout
+      title={artist.name}
+      description={
+        artist.tagline ?? `${artist.name} at Amped Up Music Promotions. Gigs, music and links.`
+      }
+      image={image ?? '/media/og-default.svg'}
+      imageAlt={artist.name}
+      jsonLd={[
+        breadcrumbJsonLd([
+          { label: 'Home', href: '/' },
+          { label: 'Artists', href: '/artists' },
+          { label: artist.name, href: `/artists/${artist.slug}` },
+        ]),
+      ]}
+    >
+      <PageHeader
+        eyebrow={artist.genre}
+        title={artist.name}
+        intro={artist.tagline}
+        trail={[
+          { label: 'Home', href: '/' },
+          { label: 'Artists', href: '/artists' },
+        ]}
+      />
+
+      <div class="artist-page container-wide">
+        <div class="artist-side">
+          <PosterImage src={image} alt="" title={artist.name} ratio="square" priority />
+          <dl class="artist-facts">
+            {artist.basedIn && (
+              <div>
+                <dt>Based in</dt>
+                <dd>{artist.basedIn}</dd>
+              </div>
+            )}
+            {artist.genre && (
+              <div>
+                <dt>Genre</dt>
+                <dd>{artist.genre}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Amped Up shows</dt>
+              <dd>{events.length}</dd>
+            </div>
+          </dl>
+          <SocialLinks links={artist.links} subject={artist.name} size="sm" />
+        </div>
+
+        <div class="artist-main">
+          {bio.length > 0 && (
+            <div class="prose">
+              {bio.map((paragraph) => (
+                <p>{paragraph}</p>
+              ))}
+            </div>
+          )}
+
+          <section aria-labelledby="artist-upcoming" class="artist-block">
+            <h2 class="display display-sm" id="artist-upcoming">Coming up</h2>
+            {upcoming.length > 0 ? (
+              <div class="grid-cards">
+                {upcoming.map((event) => (
+                  <EventCard event={event} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                variant="quiet"
+                title="No dates announced"
+                body={`${artist.name} has no Amped Up dates in the diary at the moment.`}
+              />
+            )}
+          </section>
+
+          {past.length > 0 && (
+            <section aria-labelledby="artist-past" class="artist-block">
+              <h2 class="display display-sm" id="artist-past">Previously</h2>
+              <div class="grid-cards">
+                {past.map((event) => (
+                  <EventCard event={event} hideCta />
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </SiteLayout>
+  )
+}
+
+<style>
+  .artist-page {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-9);
+  }
+
+  .artist-side {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  .artist-main {
+    display: grid;
+    gap: var(--s-6);
+    min-width: 0;
+  }
+
+  .artist-block {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .artist-facts {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .artist-facts dt {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .artist-facts dd {
+    margin: 0.15em 0 0;
+    font-weight: 600;
+    font-size: var(--step--1);
+  }
+
+  @media (min-width: 58rem) {
+    .artist-page {
+      grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+      column-gap: var(--s-8);
+      align-items: start;
+    }
+  }
+</style>

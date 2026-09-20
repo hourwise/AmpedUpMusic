@@ -1,0 +1,247 @@
+---
+/**
+ * Form field.
+ *
+ * Deliberately verbose so that every form in the project gets the same
+ * accessible structure without anyone rebuilding it: a real <label>, an
+ * optional hint wired up through aria-describedby, an error region with
+ * role="alert", and a required marker that is announced rather than implied
+ * by an asterisk alone.
+ */
+interface Props {
+  name: string;
+  label: string;
+  type?: 'text' | 'email' | 'tel' | 'url' | 'number' | 'date' | 'time' | 'datetime-local' | 'password' | 'search';
+  as?: 'input' | 'textarea' | 'select';
+  value?: string | number;
+  placeholder?: string;
+  hint?: string;
+  error?: string;
+  required?: boolean;
+  disabled?: boolean;
+  readonly?: boolean;
+  autocomplete?: string;
+  inputmode?: 'text' | 'email' | 'tel' | 'url' | 'numeric' | 'decimal' | 'search';
+  rows?: number;
+  min?: string | number;
+  max?: string | number;
+  step?: string | number;
+  /** For `as="select"`. */
+  options?: ReadonlyArray<{ value: string; label: string }>;
+  /** Text shown inside the field, e.g. a currency symbol. */
+  prefix?: string;
+  suffix?: string;
+  id?: string;
+  class?: string;
+}
+
+const {
+  name,
+  label,
+  type = 'text',
+  as = 'input',
+  value,
+  placeholder,
+  hint,
+  error,
+  required = false,
+  disabled = false,
+  readonly = false,
+  autocomplete,
+  inputmode,
+  rows = 4,
+  min,
+  max,
+  step,
+  options = [],
+  prefix,
+  suffix,
+  id = name,
+  class: className = '',
+} = Astro.props;
+
+const hintId = hint ? `${id}-hint` : undefined;
+const errorId = error ? `${id}-error` : undefined;
+const describedBy = [hintId, errorId].filter(Boolean).join(' ') || undefined;
+---
+
+<div class:list={['field', error && 'field-invalid', className]}>
+  <label class="field-label" for={id}>
+    {label}
+    {
+      required ? (
+        <span class="field-required">
+          <span aria-hidden="true">*</span>
+          <span class="visually-hidden">(required)</span>
+        </span>
+      ) : (
+        <span class="field-optional">optional</span>
+      )
+    }
+  </label>
+
+  {hint && <p class="field-hint" id={hintId}>{hint}</p>}
+
+  <div class="field-control">
+    {prefix && <span class="field-affix" aria-hidden="true">{prefix}</span>}
+
+    {
+      as === 'textarea' ? (
+        <textarea
+          id={id}
+          name={name}
+          rows={rows}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled}
+          readonly={readonly}
+          aria-describedby={describedBy}
+          aria-invalid={error ? 'true' : undefined}
+          set:text={value === undefined ? '' : String(value)}
+        />
+      ) : as === 'select' ? (
+        <select
+          id={id}
+          name={name}
+          required={required}
+          disabled={disabled}
+          aria-describedby={describedBy}
+          aria-invalid={error ? 'true' : undefined}
+        >
+          {options.map((option) => (
+            <option value={option.value} selected={String(value) === option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          id={id}
+          name={name}
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          required={required}
+          disabled={disabled}
+          readonly={readonly}
+          autocomplete={autocomplete}
+          inputmode={inputmode}
+          min={min}
+          max={max}
+          step={step}
+          aria-describedby={describedBy}
+          aria-invalid={error ? 'true' : undefined}
+        />
+      )
+    }
+
+    {suffix && <span class="field-affix field-affix-end" aria-hidden="true">{suffix}</span>}
+  </div>
+
+  {error && <p class="field-error" id={errorId} role="alert">{error}</p>}
+</div>
+
+<style>
+  .field {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .field-label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s-2);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--step--1);
+    color: var(--text);
+  }
+
+  .field-required {
+    color: var(--volt);
+  }
+
+  .field-optional {
+    font-weight: 500;
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    text-transform: lowercase;
+    letter-spacing: 0.04em;
+  }
+
+  .field-hint {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    max-width: 60ch;
+  }
+
+  .field-control {
+    display: flex;
+    align-items: stretch;
+    background: var(--ink-inset);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    overflow: hidden;
+    transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+  }
+
+  .field-control:focus-within {
+    border-color: var(--volt);
+    box-shadow: 0 0 0 3px rgb(232 255 58 / 18%);
+  }
+
+  .field-invalid .field-control {
+    border-color: var(--stop);
+  }
+
+  .field-control :is(input, textarea, select) {
+    flex: 1;
+    min-width: 0;
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-3);
+    background: transparent;
+    border: 0;
+    color: var(--text);
+  }
+
+  .field-control :is(input, textarea, select):focus {
+    outline: none;
+  }
+
+  .field-control textarea {
+    resize: vertical;
+    line-height: var(--leading-normal);
+    padding-block: var(--s-3);
+  }
+
+  .field-control input::placeholder,
+  .field-control textarea::placeholder {
+    color: var(--text-faint);
+  }
+
+  .field-control select {
+    cursor: pointer;
+  }
+
+  .field-affix {
+    display: grid;
+    place-content: center;
+    padding-inline: var(--s-3);
+    background: rgb(255 255 255 / 4%);
+    border-right: 1px solid var(--hairline);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--step--1);
+  }
+
+  .field-affix-end {
+    border-right: 0;
+    border-left: 1px solid var(--hairline);
+  }
+
+  .field-error {
+    font-size: var(--step--2);
+    color: var(--stop);
+    font-weight: 600;
+  }
+</style>

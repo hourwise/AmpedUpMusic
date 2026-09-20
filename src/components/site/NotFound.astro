@@ -1,0 +1,73 @@
+---
+/**
+ * Shared "not found" body.
+ *
+ * Lives in a component rather than only in src/pages/404.astro so that a
+ * dynamic route which cannot resolve its record can render the same thing
+ * while setting its own 404 status, instead of relying on a rewrite whose
+ * status-code behaviour is ambiguous.
+ */
+import Button from '@/components/ui/Button.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import { getServices } from '@/services/index.ts';
+
+interface Props {
+  title?: string;
+  body?: string;
+}
+
+const {
+  title = 'That page has come off the wall',
+  body = 'The link may be old, or the gig may have moved. Here is what is on instead.',
+} = Astro.props;
+
+const upcoming = await getServices().events.listUpcoming(3);
+---
+
+<div class="notfound container">
+  <p class="eyebrow eyebrow-accent">404</p>
+  <h1 class="display display-lg">{title}</h1>
+  <p class="lede">{body}</p>
+
+  <div class="notfound-actions">
+    <Button href="/gigs" variant="volt" size="lg">See all gigs</Button>
+    <Button href="/" variant="outline" size="lg">Back to the homepage</Button>
+  </div>
+
+  {
+    upcoming.length > 0 && (
+      <div class="notfound-gigs">
+        <h2 class="eyebrow">Coming up</h2>
+        <div class="grid-cards">
+          {upcoming.map((event) => (
+            <EventCard event={event} />
+          ))}
+        </div>
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .notfound {
+    display: grid;
+    gap: var(--s-4);
+    padding-block: var(--s-8) var(--s-9);
+    max-width: var(--container-wide);
+  }
+
+  .notfound-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
+  }
+
+  .notfound-gigs {
+    display: grid;
+    gap: var(--s-4);
+    margin-top: var(--s-6);
+    padding-top: var(--s-6);
+    border-top: 1px solid var(--hairline);
+  }
+</style>

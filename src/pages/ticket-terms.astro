@@ -1,0 +1,147 @@
+---
+/**
+ * Ticket terms.
+ *
+ * Drafted as placeholder commercial wording that reflects how the system
+ * actually behaves - reservations, QR admission, refund routes - so that the
+ * operators and their solicitor are editing something concrete rather than
+ * starting from a blank page. It is NOT legal advice and must be reviewed
+ * before launch (AMPED-11).
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Callout from '@/components/ui/Callout.astro';
+import { SITE } from '@/lib/site.ts';
+
+export const prerender = true;
+---
+
+<SiteLayout
+  title="Ticket terms"
+  description="Ticket terms and conditions for Amped Up Music Promotions: refunds, cancellations, postponements and admission."
+>
+  <PageHeader
+    eyebrow="The small print"
+    title="Ticket terms"
+    intro="What you are buying, what happens if a gig changes, and how you get in."
+    trail={[{ label: 'Home', href: '/' }]}
+    wide={false}
+  />
+
+  <div class="container terms">
+    <Callout tone="warn" label="Draft" title="Placeholder wording">
+      <p>
+        These terms are a working draft written to match how the ticketing actually behaves. They
+        must be reviewed before the site takes real money.
+      </p>
+    </Callout>
+
+    <div class="prose">
+      <h2>1. Who you are buying from</h2>
+      <p>
+        Tickets are sold by {SITE.name}, the promoter of the event, not by the venue and not by a
+        ticketing agency. Any question about your order comes to us:
+        <a href={`mailto:${SITE.ticketsEmail}`}>{SITE.ticketsEmail}</a>.
+      </p>
+
+      <h2>2. Prices and fees</h2>
+      <p>
+        The price shown on the event page is the total price. We do not add booking fees, service
+        charges or payment fees at checkout. Prices include VAT where it applies.
+      </p>
+
+      <h2>3. Buying a ticket</h2>
+      <p>
+        When you start a checkout we hold your tickets for a short period (currently 30 minutes)
+        while you pay. If the payment is not completed in that window the hold is released and the
+        tickets go back on sale.
+      </p>
+      <p>
+        Your order is only confirmed once we have independently verified the payment with our
+        payment provider. A message in your browser saying the payment succeeded is not on its own
+        confirmation; the confirmation email is.
+      </p>
+
+      <h2>4. Your tickets</h2>
+      <p>
+        Tickets are emailed to you, each with its own QR code. The QR code is an admission
+        credential and contains no personal information. Each ticket admits one person once.
+      </p>
+      <p>
+        If the email does not arrive, check your spam folder and then contact us. You do not need
+        the email to get in: we can find your order on the door by name, email address, order
+        reference or ticket reference.
+      </p>
+
+      <h2>5. Admission</h2>
+      <p>
+        Age restrictions are shown on every event page and are set by the venue licence. Where a
+        show is 18+, photo ID is required. The venue may refuse admission in line with its own
+        conditions of entry, including for intoxication or behaviour.
+      </p>
+      <p>
+        Doors and stage times are our best information at the time of publishing and can change.
+      </p>
+
+      <h2>6. If we cancel</h2>
+      <p>
+        If we cancel an event you are entitled to a full refund of the ticket price. We will email
+        everyone who holds a ticket and refund automatically to the card used. Refunds normally
+        appear within five working days.
+      </p>
+
+      <h2>7. If we postpone or move the venue</h2>
+      <p>
+        If an event is postponed your ticket remains valid for the rescheduled date. If the new date
+        does not suit you, tell us and we will refund you in full - you do not have to give a
+        reason. If we change the venue we will tell you and the same choice applies.
+      </p>
+
+      <h2>8. Change of line-up</h2>
+      <p>
+        Support acts occasionally change. A change to a support act is not grounds for a refund. If
+        the headline act does not appear, the event is treated as cancelled.
+      </p>
+
+      <h2>9. Refunds and resale</h2>
+      <p>
+        Tickets are non-refundable except in the circumstances above. You may transfer a ticket to
+        someone else - just send them the ticket email - but tickets may not be resold for more than
+        the face value. We reserve the right to void tickets we believe have been resold at a
+        profit.
+      </p>
+
+      <h2>10. Your data</h2>
+      <p>
+        We store your name, email address and order details so that we can sell you a ticket and let
+        you in. We never store card details. See our <a href="/privacy">privacy notice</a>.
+      </p>
+
+      <h2>11. Access</h2>
+      <p>
+        Accessible viewing positions and free personal assistant tickets are available at the venues
+        that can offer them. See our <a href="/accessibility">accessibility information</a> and
+        contact us after booking.
+      </p>
+
+      <h2>12. Liability</h2>
+      <p>
+        Nothing in these terms limits our liability for death or personal injury caused by
+        negligence, or for fraud. Your statutory rights are not affected.
+      </p>
+
+      <h2>13. Contact</h2>
+      <p>
+        {SITE.name}, <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.
+      </p>
+    </div>
+  </div>
+</SiteLayout>
+
+<style>
+  .terms {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-9);
+  }
+</style>

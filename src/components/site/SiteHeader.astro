@@ -1,0 +1,340 @@
+---
+/**
+ * Site header.
+ *
+ * Two decisions worth stating:
+ *
+ * 1. The Tickets button is visible at every breakpoint, including the
+ *    narrowest phone, and is never folded into the burger menu. The dominant
+ *    journey is Instagram -> event page -> tickets, and hiding the commercial
+ *    action behind a menu on the device that carries most of the traffic
+ *    would be the single most expensive design mistake available here.
+ *
+ * 2. The mobile menu is a native <dialog>. That gives focus trapping, Escape
+ *    to close and inert background for free, correctly, rather than an
+ *    approximation of them written by hand.
+ */
+import Wordmark from './Wordmark.astro';
+import Button from '@/components/ui/Button.astro';
+import { PUBLIC_NAV, SITE } from '@/lib/site.ts';
+
+const pathname = Astro.url.pathname;
+const isActive = (href: string) => pathname === href || (href !== '/' && pathname.startsWith(`${href}/`));
+const primaryNav = PUBLIC_NAV.filter((item) => item.primary);
+---
+
+<header class="site-header" data-site-header>
+  <div class="header-inner container-wide">
+    <Wordmark href="/" />
+
+    <nav class="header-nav" aria-label="Main">
+      <ul>
+        {
+          primaryNav.map((item) => (
+            <li>
+              <a href={item.href} aria-current={isActive(item.href) ? 'page' : undefined}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="header-actions">
+      <Button href="/tickets" variant="volt" size="sm" class="header-cta">Tickets</Button>
+      <button
+        type="button"
+        class="burger"
+        aria-label="Open menu"
+        aria-haspopup="dialog"
+        data-menu-open
+      >
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<dialog class="menu" data-menu aria-label="Site menu">
+  <div class="menu-inner">
+    <div class="menu-top">
+      <Wordmark size="sm" />
+      <button type="button" class="menu-close" aria-label="Close menu" data-menu-close>
+        <span aria-hidden="true">Close</span>
+      </button>
+    </div>
+
+    <nav aria-label="All pages">
+      <ul class="menu-list">
+        {
+          PUBLIC_NAV.map((item) => (
+            <li>
+              <a href={item.href} aria-current={isActive(item.href) ? 'page' : undefined}>
+                <span class="menu-label">{item.label}</span>
+                {item.description && <span class="menu-desc">{item.description}</span>}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="menu-foot">
+      <Button href="/tickets" variant="volt" size="lg" block>Buy tickets</Button>
+      <ul class="menu-social">
+        <li><a href={SITE.social.instagram} rel="me noopener">Instagram</a></li>
+        <li><a href={SITE.social.tiktok} rel="me noopener">TikTok</a></li>
+        <li><a href={SITE.social.facebook} rel="me noopener">Facebook</a></li>
+      </ul>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>('[data-menu]');
+  const openButton = document.querySelector<HTMLButtonElement>('[data-menu-open]');
+  const closeButton = document.querySelector<HTMLButtonElement>('[data-menu-close]');
+
+  openButton?.addEventListener('click', () => dialog?.showModal());
+  closeButton?.addEventListener('click', () => dialog?.close());
+
+  // Clicking the backdrop closes. The dialog element itself fills the screen,
+  // so the check is against the inner panel.
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  // Following a link inside the menu should not leave it open behind the
+  // new page during a prefetch-driven navigation.
+  dialog?.querySelectorAll('a').forEach((link) => {
+    link.addEventListener('click', () => dialog.close());
+  });
+
+  // Solidify the header once the page has scrolled past the hero.
+  const header = document.querySelector<HTMLElement>('[data-site-header]');
+  if (header) {
+    const onScroll = () => header.classList.toggle('is-stuck', window.scrollY > 24);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+  }
+</script>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    background: transparent;
+    transition:
+      background-color var(--normal) var(--ease),
+      border-color var(--normal) var(--ease),
+      backdrop-filter var(--normal) var(--ease);
+    border-bottom: 1px solid transparent;
+  }
+
+  .site-header.is-stuck {
+    background: rgb(8 8 11 / 86%);
+    backdrop-filter: blur(14px) saturate(140%);
+    border-bottom-color: var(--hairline);
+  }
+
+  .header-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    width: 100%;
+  }
+
+  .header-nav {
+    display: none;
+    margin-left: auto;
+  }
+
+  .header-nav ul {
+    display: flex;
+    gap: var(--s-1);
+  }
+
+  .header-nav a {
+    display: block;
+    padding: var(--s-2) var(--s-3);
+    border-radius: var(--r-sm);
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color var(--fast) var(--ease), background-color var(--fast) var(--ease);
+  }
+
+  .header-nav a:hover {
+    color: var(--text);
+    background: rgb(255 255 255 / 6%);
+  }
+
+  .header-nav a[aria-current='page'] {
+    color: var(--volt);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    margin-left: auto;
+  }
+
+  .burger {
+    display: grid;
+    place-content: center;
+    gap: 5px;
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+  }
+
+  .burger span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: var(--text);
+    border-radius: 1px;
+  }
+
+  .burger:hover {
+    border-color: var(--volt);
+  }
+
+  @media (min-width: 62rem) {
+    .header-nav {
+      display: block;
+    }
+
+    .header-actions {
+      margin-left: 0;
+    }
+
+    .burger {
+      display: none;
+    }
+  }
+
+  /* --- Mobile menu --------------------------------------------------------- */
+
+  .menu {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: var(--ink-base);
+    color: var(--text);
+  }
+
+  .menu::backdrop {
+    background: rgb(4 4 6 / 82%);
+    backdrop-filter: blur(6px);
+  }
+
+  .menu-inner {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: var(--s-4) var(--gutter) var(--s-6);
+    gap: var(--s-5);
+    background:
+      radial-gradient(40rem 28rem at 80% -10%, rgb(232 255 58 / 10%), transparent 65%),
+      radial-gradient(36rem 26rem at 5% 105%, rgb(255 59 107 / 10%), transparent 65%);
+  }
+
+  .menu-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--header-h);
+  }
+
+  .menu-close {
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-4);
+    background: transparent;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .menu-close:hover {
+    color: var(--text);
+    border-color: var(--volt);
+  }
+
+  .menu-list {
+    display: grid;
+    gap: var(--s-1);
+  }
+
+  .menu-list a {
+    display: grid;
+    gap: 0.1em;
+    padding: var(--s-3) 0;
+    text-decoration: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .menu-label {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-stretch: 80%;
+    text-transform: uppercase;
+    font-size: var(--step-2);
+    line-height: 1.1;
+  }
+
+  .menu-desc {
+    font-size: var(--step--1);
+    color: var(--text-faint);
+  }
+
+  .menu-list a:hover .menu-label,
+  .menu-list a[aria-current='page'] .menu-label {
+    color: var(--volt);
+  }
+
+  .menu-foot {
+    margin-top: auto;
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .menu-social {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .menu-social a {
+    text-decoration: none;
+  }
+
+  .menu-social a:hover {
+    color: var(--volt);
+  }
+</style>

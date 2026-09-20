@@ -1,0 +1,29 @@
+---
+/**
+ * Ticket availability, rendered identically everywhere it appears.
+ *
+ * The visible label is short enough for a card; the full sentence goes to
+ * assistive technology via the title and a visually hidden description, so
+ * "Last few" is never the only thing a screen reader user gets.
+ */
+import Badge from '@/components/ui/Badge.astro';
+import { AVAILABILITY_PRESENTATION, AVAILABILITY_SHORT } from '@/lib/availability.ts';
+import type { AvailabilityState } from '@/types/domain.ts';
+
+interface Props {
+  state: AvailabilityState;
+  size?: 'sm' | 'md';
+  /** Use the long label instead of the compact one. */
+  long?: boolean;
+  class?: string;
+}
+
+const { state, size = 'md', long = false, class: className = '' } = Astro.props;
+const presentation = AVAILABILITY_PRESENTATION[state];
+const label = long ? presentation.label : AVAILABILITY_SHORT[state];
+---
+
+<Badge tone={presentation.tone} size={size} dot class={className} title={presentation.description}>
+  {label}
+  <span class="visually-hidden">. {presentation.description}</span>
+</Badge>

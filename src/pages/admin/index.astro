@@ -1,0 +1,430 @@
+---
+/**
+ * Admin dashboard.
+ *
+ * Answers one question first - how is the next gig doing - and then offers
+ * the four things an operator actually does: make a new promotion, manage the
+ * gigs, look at orders, and work the door. Everything else is secondary and
+ * lives below the fold.
+ *
+ * This is deliberately NOT an analytics dashboard. There are no charts, no
+ * date-range pickers and no comparisons with last month. Two people running
+ * gigs on a Friday need a number, a capacity bar and four big buttons.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import StatusBadge from '@/components/admin/StatusBadge.astro';
+import AdminIcon from '@/components/admin/AdminIcon.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import PosterImage from '@/components/events/PosterImage.astro';
+import Button from '@/components/ui/Button.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { formatDateTime, relativeDayLabel } from '@/lib/dates.ts';
+
+const services = getServices();
+
+const next = await services.admin.nextEvent();
+const [summary, recentOrders, newEnquiries, mailing, audit, allGigs] = await Promise.all([
+  next ? services.admin.salesSummary(next.id) : null,
+  services.orders.listRecent(6),
+  services.enquiries.countNew(),
+  services.mailingList.counts(),
+  services.audit.listRecent(5),
+  services.admin.listAll(),
+]);
+
+const drafts = allGigs.filter((e) => e.status === 'draft').length;
+const upcoming = allGigs.filter((e) => !e.isPast && e.status === 'published').length;
+const relative = next ? relativeDayLabel(next.startsAt) : null;
+
+const ACTIONS = [
+  { label: 'New promotion', href: '/admin/gigs/new', icon: 'plus', tone: 'volt' as const },
+  { label: 'Manage gigs', href: '/admin/gigs', icon: 'calendar', tone: 'solid' as const },
+  { label: 'Orders', href: '/admin/orders', icon: 'receipt', tone: 'solid' as const },
+  { label: 'Door Mode', href: '/admin/door', icon: 'scan', tone: 'outline' as const },
+];
+---
+
+<AdminLayout title="Dashboard" subtitle="What is happening, and the four things you do most.">
+  <nav class="quick" aria-label="Main actions">
+    {
+      ACTIONS.map((action) => (
+        <a class:list={['quick-tile', `quick-${action.tone}`]} href={action.href}>
+          <AdminIcon name={action.icon} size={26} />
+          <span>{action.label}</span>
+        </a>
+      ))
+    }
+  </nav>
+
+  {
+    next && summary ? (
+      <section class="next surface" aria-labelledby="next-heading">
+        <div class="next-poster">
+          <PosterImage src={next.posterUrl} alt={next.posterAlt} title={next.title} priority />
+        </div>
+
+        <div class="next-body">
+          <p class="eyebrow eyebrow-accent">
+            Next gig{relative ? ` - ${relative.toLowerCase()}` : ''}
+          </p>
+          <h2 class="display display-sm" id="next-heading">
+            <a href={`/admin/gigs/${next.id}`}>{next.title}</a>
+          </h2>
+          <p class="next-when">
+            {next.dateLabel} &middot; {next.venue.name}, {next.venue.city}
+          </p>
+          <p class="next-times">
+            Doors {next.doorsLabel} &middot; first act {next.startsLabel}
+          </p>
+          <p class="next-status">
+            <StatusBadge kind="event" status={next.status} size="md" />
+          </p>
+
+          <div class="next-stats">
+            <StatCard
+              label="Tickets sold"
+              value={summary.sold}
+              detail={`of ${summary.capacity} - ${summary.available} left`}
+              percent={summary.percentSold}
+              tone="volt"
+            />
+            <StatCard
+              label="Taken"
+              value={summary.grossLabel}
+              detail={summary.reserved > 0 ? `${summary.reserved} held in checkout` : 'No holds'}
+              tone="go"
+            />
+            <StatCard
+              label="Guest list"
+              value={summary.guestList}
+              detail="Comps and guests"
+            />
+            <StatCard
+              label="Checked in"
+              value={summary.checkedIn}
+              detail={summary.checkedIn === 0 ? 'Door not open yet' : 'On the night'}
+            />
+          </div>
+
+          <div class="next-actions">
+            <Button href={`/admin/gigs/${next.id}`} variant="solid" size="md">Edit gig</Button>
+            <Button href={`/admin/orders?event=${next.id}`} variant="ghost" size="md">
+              Orders for this gig
+            </Button>
+            <Button href={`/admin/door/${next.id}`} variant="outline" size="md">
+              Open Door Mode
+            </Button>
+          </div>
+        </div>
+      </section>
+    ) : (
+      <EmptyState
+        title="Nothing in the diary"
+        body="There are no published gigs coming up. Create a promotion and it will appear here."
+        actionHref="/admin/gigs/new"
+        actionLabel="New promotion"
+      />
+    )
+  }
+
+  <div class="glance">
+    <StatCard label="Published gigs" value={upcoming} detail="Upcoming and live" href="/admin/gigs" />
+    <StatCard
+      label="Drafts"
+      value={drafts}
+      detail={drafts > 0 ? 'Not visible to the public' : 'Nothing waiting'}
+      tone={drafts > 0 ? 'warn' : 'default'}
+      href="/admin/gigs"
+    />
+    <StatCard
+      label="New enquiries"
+      value={newEnquiries}
+      detail={newEnquiries > 0 ? 'Waiting for a reply' : 'All caught up'}
+      tone={newEnquiries > 0 ? 'warn' : 'default'}
+      href="/admin/enquiries"
+    />
+    <StatCard
+      label="Gig alerts list"
+      value={mailing.subscribed}
+      detail="Subscribed"
+      href="/admin/mailing-list"
+    />
+  </div>
+
+  <section class="panel" aria-labelledby="recent-orders-heading">
+    <header class="panel-head">
+      <h2 class="display display-sm" id="recent-orders-heading">Recent orders</h2>
+      <a href="/admin/orders">All orders</a>
+    </header>
+
+    {
+      recentOrders.length > 0 ? (
+        <DataTable caption="The six most recent ticket orders">
+          <thead>
+            <tr>
+              <th scope="col">Reference</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Gig</th>
+              <th scope="col" class="num">Tickets</th>
+              <th scope="col" class="num">Total</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recentOrders.map((row) => (
+              <tr>
+                <td class="mono">
+                  <a href={`/admin/orders?q=${row.order.reference}`}>{row.order.reference}</a>
+                </td>
+                <td>
+                  {row.order.customerName}
+                  <span class="dim block">{row.order.customerEmail}</span>
+                </td>
+                <td>{row.eventTitle}</td>
+                <td class="num">{row.ticketCount}</td>
+                <td class="num">{row.totalLabel}</td>
+                <td>
+                  <StatusBadge kind="order" status={row.order.status} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      ) : (
+        <EmptyState variant="quiet" title="No orders yet" />
+      )
+    }
+  </section>
+
+  <section class="panel" aria-labelledby="activity-heading">
+    <header class="panel-head">
+      <h2 class="display display-sm" id="activity-heading">Recent activity</h2>
+    </header>
+    <ul class="activity">
+      {
+        audit.map((entry) => (
+          <li>
+            <span class="activity-when">{formatDateTime(entry.occurredAt)}</span>
+            <span class="activity-what">{entry.summary}</span>
+            <span class="activity-who">{entry.actorEmail.split('@')[0]}</span>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</AdminLayout>
+
+<style>
+  /* --- Primary actions ----------------------------------------------------- */
+
+  .quick {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-tile {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: var(--s-2);
+    min-height: 6.5rem;
+    padding: var(--s-4);
+    border-radius: var(--r-lg);
+    border: 1px solid var(--hairline-strong);
+    background: var(--ink-raised);
+    color: var(--text);
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step--1);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: center;
+    transition:
+      transform var(--fast) var(--ease),
+      border-color var(--fast) var(--ease),
+      background-color var(--fast) var(--ease);
+  }
+
+  .quick-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--volt);
+  }
+
+  .quick-volt {
+    background: var(--volt);
+    border-color: var(--volt);
+    color: var(--text-on-accent);
+    box-shadow: var(--glow-volt);
+  }
+
+  .quick-outline {
+    background: transparent;
+    border-color: color-mix(in srgb, var(--stage-cyan) 45%, transparent);
+    color: var(--stage-cyan);
+  }
+
+  @media (min-width: 46rem) {
+    .quick {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  /* --- Next gig ------------------------------------------------------------ */
+
+  .next {
+    display: grid;
+    gap: var(--s-5);
+    padding: var(--s-5);
+  }
+
+  .next-poster {
+    width: min(12rem, 45%);
+  }
+
+  .next-body {
+    display: grid;
+    gap: var(--s-2);
+    align-content: start;
+    min-width: 0;
+  }
+
+  .next-body h2 a {
+    text-decoration: none;
+  }
+
+  .next-body h2 a:hover {
+    color: var(--volt);
+  }
+
+  .next-when {
+    font-weight: 600;
+  }
+
+  .next-times {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .next-status {
+    margin-top: var(--s-1);
+  }
+
+  .next-stats {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: var(--s-3);
+  }
+
+  .next-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    margin-top: var(--s-3);
+  }
+
+  @media (min-width: 52rem) {
+    .next {
+      grid-template-columns: 12rem minmax(0, 1fr);
+      gap: var(--s-6);
+      padding: var(--s-6);
+    }
+
+    .next-poster {
+      width: 100%;
+    }
+
+    .next-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  /* --- At a glance --------------------------------------------------------- */
+
+  .glance {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 52rem) {
+    .glance {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  /* --- Panels -------------------------------------------------------------- */
+
+  .panel {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .panel-head a {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+
+  .panel-head a:hover {
+    color: var(--volt);
+  }
+
+  .block {
+    display: block;
+    font-size: var(--step--2);
+  }
+
+  .activity {
+    display: grid;
+    gap: var(--s-1);
+  }
+
+  .activity li {
+    display: grid;
+    gap: var(--s-1);
+    padding: var(--s-3) var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-sm);
+    background: var(--ink-raised);
+    font-size: var(--step--1);
+  }
+
+  .activity-when {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+  }
+
+  .activity-who {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  @media (min-width: 46rem) {
+    .activity li {
+      grid-template-columns: 9rem minmax(0, 1fr) 7rem;
+      align-items: center;
+      gap: var(--s-4);
+    }
+
+    .activity-who {
+      text-align: right;
+    }
+  }
+</style>

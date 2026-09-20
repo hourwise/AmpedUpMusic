@@ -1,0 +1,27 @@
+# Amped Up Music Promotions — local development variables (EXAMPLE ONLY).
+#
+# Copy to `.dev.vars` (git-ignored) for local Wrangler development.
+# NEVER commit real values. NEVER paste production SumUp, Resend, Turnstile or
+# Cloudflare credentials into this repository or into an AI agent session.
+#
+# Nothing below is consumed during AMPED-01 — the scaffold runs entirely on
+# in-memory fixtures. These keys document the shape expected by later slices.
+
+AMPED_ENV=development
+
+# AMPED-07A/B — SumUp Hosted Checkout (server-side only, never exposed to client)
+SUMUP_API_KEY=
+SUMUP_MERCHANT_CODE=
+SUMUP_WEBHOOK_SECRET=
+
+# AMPED-08C — transactional email provider (behind TicketEmailProvider interface)
+EMAIL_PROVIDER=console
+RESEND_API_KEY=
+EMAIL_FROM="Amped Up Music Promotions <tickets@ampedupmusic.co.uk>"
+
+# AMPED-10A — Cloudflare Turnstile (site key is public, secret key is not)
+PUBLIC_TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
+# AMPED-08B — QR admission credential signing key (rotate-able)
+TICKET_TOKEN_SECRET=

@@ -1,0 +1,115 @@
+---
+/**
+ * A page section with a consistent heading block.
+ *
+ * Takes the heading level as a prop so that document outline stays correct:
+ * a section on a page that already has an <h1> uses <h2>, and a nested one
+ * uses <h3>, without anyone having to remember.
+ */
+interface Props {
+  eyebrow?: string;
+  heading?: string;
+  /** Short supporting line under the heading. */
+  intro?: string;
+  level?: 2 | 3;
+  /** A "See all" style link rendered opposite the heading. */
+  actionHref?: string;
+  actionLabel?: string;
+  id?: string;
+  tight?: boolean;
+  wide?: boolean;
+  class?: string;
+}
+
+const {
+  eyebrow,
+  heading,
+  intro,
+  level = 2,
+  actionHref,
+  actionLabel,
+  id,
+  tight = false,
+  wide = false,
+  class: className = '',
+} = Astro.props;
+
+const Heading = `h${level}` as 'h2' | 'h3';
+---
+
+<section class:list={[tight ? 'section-tight' : 'section', className]} id={id}>
+  <div class={wide ? 'container-wide' : 'container'}>
+    {
+      (eyebrow || heading) && (
+        <div class="section-head">
+          <div class="section-head-text">
+            {eyebrow && <p class="eyebrow eyebrow-accent">{eyebrow}</p>}
+            {heading && <Heading class="display display-md section-heading">{heading}</Heading>}
+            {intro && <p class="lede section-intro">{intro}</p>}
+          </div>
+          {
+            actionHref && actionLabel && (
+              <a class="section-action" href={actionHref}>
+                {actionLabel}
+                <span aria-hidden="true">-&gt;</span>
+              </a>
+            )
+          }
+        </div>
+      )
+    }
+    <slot />
+  </div>
+</section>
+
+<style>
+  .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--s-4);
+    margin-bottom: var(--s-6);
+  }
+
+  .section-head-text {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .section-heading {
+    max-width: 22ch;
+  }
+
+  .section-intro {
+    max-width: 52ch;
+  }
+
+  .section-action {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.75rem;
+    padding-inline: var(--s-2);
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  .section-action:hover {
+    color: var(--volt);
+  }
+
+  .section-action span {
+    transition: transform var(--fast) var(--ease);
+  }
+
+  .section-action:hover span {
+    transform: translateX(3px);
+  }
+</style>

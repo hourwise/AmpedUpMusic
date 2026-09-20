@@ -1,0 +1,167 @@
+---
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Field from '@/components/ui/Field.astro';
+import Button from '@/components/ui/Button.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import { SITE } from '@/lib/site.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+
+export const prerender = true;
+---
+
+<SiteLayout
+  title="Contact"
+  description="Get in touch with Amped Up Music Promotions about a ticket, an order, access at a venue, or anything else."
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Contact', href: '/contact' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Get in touch"
+    title="Contact"
+    intro="A real person reads these. If it is about an order you have already placed, quote the order reference and we will find it straight away."
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="contact container-wide">
+    <div class="contact-form surface">
+      <h2 class="display display-sm">Send us a message</h2>
+      <form class="form" data-mock="AMPED-10A enquiries with Turnstile">
+        <div class="form-row">
+          <Field name="name" label="Your name" required autocomplete="name" />
+          <Field name="email" label="Email" type="email" required autocomplete="email" inputmode="email" />
+        </div>
+        <Field
+          name="subject"
+          label="Order reference"
+          hint="Only if this is about tickets you have already bought. It looks like AMP-26-00814."
+        />
+        <Field name="message" label="Message" as="textarea" rows={6} required />
+
+        <div class="form-turnstile">
+          <ScaffoldNote slice="AMPED-10A">
+            Turnstile widget, verified server-side before the enquiry is stored.
+          </ScaffoldNote>
+        </div>
+
+        <div class="form-actions">
+          <Button type="submit" variant="volt" size="lg">Send</Button>
+        </div>
+      </form>
+    </div>
+
+    <aside class="contact-aside">
+      <div class="contact-card surface">
+        <h2 class="eyebrow eyebrow-accent">Tickets and orders</h2>
+        <p><a href={`mailto:${SITE.ticketsEmail}`}>{SITE.ticketsEmail}</a></p>
+        <p class="contact-note">
+          Lost your ticket email? Tell us the name it was bought in and we will resend it. You can
+          also be found on the door by name, email or order number.
+        </p>
+      </div>
+
+      <div class="contact-card surface">
+        <h2 class="eyebrow eyebrow-accent">Everything else</h2>
+        <p><a href={`mailto:${SITE.email}`}>{SITE.email}</a></p>
+        <p class="contact-note">
+          Bands and venues, please use <a href="/promote-with-us">promote with us</a> instead - it
+          asks for the things we need and saves a round trip.
+        </p>
+      </div>
+
+      <div class="contact-card surface">
+        <h2 class="eyebrow eyebrow-accent">Access</h2>
+        <p class="contact-note">
+          To reserve an accessible viewing position, or to arrange a free personal assistant ticket,
+          email <a href={`mailto:${SITE.ticketsEmail}`}>{SITE.ticketsEmail}</a> after you book.
+          Read our <a href="/accessibility">accessibility information</a>.
+        </p>
+      </div>
+
+      <div class="contact-card surface">
+        <h2 class="eyebrow eyebrow-accent">Socials</h2>
+        <ul class="contact-social">
+          <li><a href={SITE.social.instagram} rel="me noopener">Instagram</a></li>
+          <li><a href={SITE.social.tiktok} rel="me noopener">TikTok</a></li>
+          <li><a href={SITE.social.facebook} rel="me noopener">Facebook</a></li>
+          <li><a href={SITE.social.youtube} rel="me noopener">YouTube</a></li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+</SiteLayout>
+
+<style>
+  .contact {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-9);
+  }
+
+  .contact-form {
+    padding: var(--s-6);
+    display: grid;
+    gap: var(--s-5);
+  }
+
+  .form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .form-row {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .form-actions {
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .contact-aside {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  .contact-card {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-5);
+  }
+
+  .contact-card a {
+    color: var(--volt);
+  }
+
+  .contact-note {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .contact-social {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+    font-size: var(--step--1);
+  }
+
+  @media (min-width: 40rem) {
+    .form-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 62rem) {
+    .contact {
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      column-gap: var(--s-7);
+      align-items: start;
+    }
+  }
+</style>

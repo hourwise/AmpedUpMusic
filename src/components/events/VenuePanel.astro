@@ -1,0 +1,136 @@
+---
+/**
+ * Venue and accessibility information.
+ *
+ * Accessibility is given its own heading and its own space rather than being
+ * a footnote. It is the information most likely to decide whether somebody
+ * can come at all, and the venue fixtures include an honest "this room has
+ * twelve steps and no lift" case because pretending otherwise is worse than
+ * saying it.
+ */
+import type { EventView } from '@/types/view.ts';
+
+interface Props {
+  event: EventView;
+}
+
+const { event } = Astro.props;
+const venue = event.venue;
+const address = [venue.addressLine1, venue.addressLine2, venue.city, venue.postcode]
+  .filter(Boolean)
+  .join(', ');
+---
+
+<div class="venue surface">
+  <h2 class="display display-sm">{venue.name}</h2>
+
+  <address class="venue-address">{address}</address>
+
+  <div class="venue-links">
+    {
+      venue.mapUrl && (
+        <a href={venue.mapUrl} rel="noopener">
+          Open in maps
+          <span class="visually-hidden"> (opens the venue location in a map)</span>
+        </a>
+      )
+    }
+    {venue.websiteUrl && <a href={venue.websiteUrl} rel="noopener">Venue website</a>}
+  </div>
+
+  {venue.standardNotes && <p class="venue-notes">{venue.standardNotes}</p>}
+
+  <div class="venue-access">
+    <h3 class="eyebrow eyebrow-accent">Accessibility</h3>
+    {venue.accessibilityInfo && <p>{venue.accessibilityInfo}</p>}
+    {event.accessibilityNotes && <p>{event.accessibilityNotes}</p>}
+    <p class="venue-access-link">
+      <a href="/accessibility">Our full accessibility information</a>
+    </p>
+  </div>
+
+  <dl class="venue-times">
+    <div>
+      <dt>Doors</dt>
+      <dd>{event.doorsLabel}</dd>
+    </div>
+    <div>
+      <dt>First act</dt>
+      <dd>{event.startsLabel}</dd>
+    </div>
+    <div>
+      <dt>Age</dt>
+      <dd>{event.ageRestrictionLabel}</dd>
+    </div>
+  </dl>
+</div>
+
+<style>
+  .venue {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-5);
+  }
+
+  .venue-address {
+    font-style: normal;
+    color: var(--text-muted);
+    font-size: var(--step--1);
+  }
+
+  .venue-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+    font-size: var(--step--1);
+  }
+
+  .venue-links a {
+    color: var(--volt);
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .venue-notes {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .venue-access {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-4);
+    border-radius: var(--r);
+    background: rgb(255 255 255 / 3%);
+    border: 1px solid var(--hairline);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .venue-access-link a {
+    color: var(--text);
+  }
+
+  .venue-times {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .venue-times dt {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .venue-times dd {
+    margin: 0.2em 0 0;
+    font-weight: 600;
+    font-size: var(--step--1);
+  }
+</style>

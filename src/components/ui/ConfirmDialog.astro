@@ -1,0 +1,117 @@
+---
+/**
+ * Confirmation modal, built on native <dialog>.
+ *
+ * Opened by any element carrying `data-confirm-open="<id>"`. Used in admin for
+ * the actions an operator should not be able to do by accident - cancelling a
+ * gig that has orders against it, deleting a draft, undoing a door scan.
+ */
+import Button from './Button.astro';
+
+interface Props {
+  id: string;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  tone?: 'danger' | 'volt';
+  /** Extra consequence line, e.g. "169 ticket holders will be emailed." */
+  consequence?: string;
+}
+
+const {
+  id,
+  title,
+  body,
+  confirmLabel,
+  cancelLabel = 'Back',
+  tone = 'danger',
+  consequence,
+} = Astro.props;
+---
+
+<dialog class="confirm" id={id} aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`}>
+  <div class="confirm-panel">
+    <h2 class="confirm-title display display-sm" id={`${id}-title`}>{title}</h2>
+    <p class="confirm-body" id={`${id}-body`}>{body}</p>
+    {consequence && <p class="confirm-consequence">{consequence}</p>}
+    <div class="confirm-actions">
+      <Button variant="ghost" size="md" data-confirm-cancel>{cancelLabel}</Button>
+      <Button variant={tone === 'danger' ? 'danger' : 'volt'} size="md" data-confirm-accept>
+        {confirmLabel}
+      </Button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-confirm-open]').forEach((trigger) => {
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault();
+      const target = trigger.dataset.confirmOpen;
+      if (!target) return;
+      document.querySelector<HTMLDialogElement>(`#${CSS.escape(target)}`)?.showModal();
+    });
+  });
+
+  document.querySelectorAll<HTMLDialogElement>('dialog.confirm').forEach((dialog) => {
+    dialog.querySelector('[data-confirm-cancel]')?.addEventListener('click', () => dialog.close());
+    dialog.querySelector('[data-confirm-accept]')?.addEventListener('click', () => {
+      // AMPED-01 is a scaffold: the confirm action closes the dialog and does
+      // nothing else. The real handler is wired in the slice that owns the
+      // operation (AMPED-04B for gig lifecycle, AMPED-09B for door undo).
+      dialog.close();
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  });
+</script>
+
+<style>
+  .confirm {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    max-width: min(32rem, calc(100vw - 2rem));
+  }
+
+  .confirm::backdrop {
+    background: rgb(4 4 6 / 80%);
+    backdrop-filter: blur(4px);
+  }
+
+  .confirm-panel {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-6);
+    background: var(--ink-raised);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text);
+  }
+
+  .confirm-body {
+    color: var(--text-muted);
+    font-size: var(--step--1);
+  }
+
+  .confirm-consequence {
+    padding: var(--s-3);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+    color: var(--warn);
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-3);
+    margin-top: var(--s-3);
+    flex-wrap: wrap;
+  }
+</style>

@@ -1,0 +1,231 @@
+---
+/**
+ * Enquiries inbox.
+ *
+ * Bands, venues, press and general messages from the public forms. Presented
+ * as a readable list rather than a table, because these are things to read and
+ * reply to, not rows to scan.
+ *
+ * Messages that failed the bot check are kept but marked, never silently
+ * dropped: a real band pitch getting binned because Turnstile had a bad day is
+ * a genuine cost to the business.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Button from '@/components/ui/Button.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+
+const services = getServices();
+const enquiries = await services.enquiries.list();
+
+const counts = {
+  all: enquiries.length,
+  new: enquiries.filter((e) => e.enquiry.status === 'new').length,
+  artists: enquiries.filter((e) => e.enquiry.kind === 'artist').length,
+  spam: enquiries.filter((e) => e.enquiry.status === 'spam').length,
+};
+
+const STATUS_TONE = {
+  new: 'volt',
+  read: 'neutral',
+  replied: 'go',
+  archived: 'muted',
+  spam: 'stop',
+} as const;
+---
+
+<AdminLayout
+  title="Enquiries"
+  subtitle="Messages from the contact and promote-with-us forms."
+  wide
+>
+  <div class="enq-stats">
+    <StatCard label="Waiting" value={counts.new} tone={counts.new > 0 ? 'warn' : 'default'} detail="Not read yet" />
+    <StatCard label="Total" value={counts.all} detail="All time" />
+    <StatCard label="Band pitches" value={counts.artists} detail="Artists wanting a slot" />
+    <StatCard label="Caught as spam" value={counts.spam} detail="Kept, not deleted" />
+  </div>
+
+  {
+    enquiries.length > 0 ? (
+      <ul class="enq-list">
+        {enquiries.map(({ enquiry, kindLabel, receivedLabel }) => (
+          <li class:list={['enq', enquiry.status === 'new' && 'enq-new', enquiry.status === 'spam' && 'enq-spam']}>
+            <div class="enq-head">
+              <div class="enq-who">
+                <p class="enq-name">{enquiry.name}</p>
+                <p class="enq-contact">
+                  <a href={`mailto:${enquiry.email}`}>{enquiry.email}</a>
+                  {enquiry.phone && <span class="enq-phone">{enquiry.phone}</span>}
+                </p>
+              </div>
+              <div class="enq-tags">
+                <Badge tone="neutral" size="sm">{kindLabel}</Badge>
+                <Badge tone={STATUS_TONE[enquiry.status]} size="sm" dot>
+                  {enquiry.status === 'new' ? 'New' : enquiry.status}
+                </Badge>
+                {!enquiry.botCheckPassed && (
+                  <Badge tone="stop" size="sm" dot>Failed bot check</Badge>
+                )}
+              </div>
+            </div>
+
+            {enquiry.subject && <p class="enq-subject">{enquiry.subject}</p>}
+            <p class="enq-message">{enquiry.message}</p>
+
+            {enquiry.links && (
+              <p class="enq-links">
+                <span class="eyebrow">Links</span>
+                <a href={enquiry.links} rel="noopener nofollow">{enquiry.links}</a>
+              </p>
+            )}
+
+            <div class="enq-foot">
+              <span class="enq-when">{receivedLabel}</span>
+              <span class="enq-actions">
+                <Button href={`mailto:${enquiry.email}`} variant="volt" size="sm">Reply</Button>
+                <Button variant="ghost" size="sm">Mark read</Button>
+                <Button variant="ghost" size="sm">Archive</Button>
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <EmptyState
+        title="Nothing in the inbox"
+        body="Messages from the website forms land here."
+        actionHref="/promote-with-us"
+        actionLabel="See the form"
+      />
+    )
+  }
+
+  <ScaffoldNote slice="AMPED-10A">
+    Enquiries are demonstration records. This slice adds the public POST endpoint with server-side
+    Turnstile verification, stores the result, and lets the operator change the status here. Merely
+    rendering the Turnstile widget is not protection - the token must be verified on the server.
+  </ScaffoldNote>
+</AdminLayout>
+
+<style>
+  .enq-stats {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 52rem) {
+    .enq-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .enq-list {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .enq {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-5);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .enq-new {
+    border-left-color: var(--volt);
+  }
+
+  .enq-spam {
+    opacity: 0.55;
+    border-left-color: var(--stop);
+  }
+
+  .enq-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .enq-name {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-0);
+  }
+
+  .enq-contact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .enq-contact a {
+    color: var(--text-muted);
+  }
+
+  .enq-contact a:hover {
+    color: var(--volt);
+  }
+
+  .enq-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+
+  .enq-subject {
+    font-weight: 700;
+    font-size: var(--step-0);
+  }
+
+  .enq-message {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    max-width: 78ch;
+    white-space: pre-line;
+  }
+
+  .enq-links {
+    display: grid;
+    gap: var(--s-1);
+    font-size: var(--step--2);
+  }
+
+  .enq-links a {
+    color: var(--volt);
+    word-break: break-all;
+  }
+
+  .enq-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .enq-when {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+  }
+
+  .enq-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+</style>

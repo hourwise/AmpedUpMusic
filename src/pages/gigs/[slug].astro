@@ -1,0 +1,299 @@
+---
+/**
+ * The event page - the core public object.
+ *
+ * Layout: hero, then the body. On desktop the ticket panel sits in a sticky
+ * right-hand column while the description, lineup and venue scroll past it.
+ * On a phone it is one column and the panel appears immediately after the
+ * description, with the sticky buy bar as a backstop once it scrolls away.
+ *
+ * The page is split into intro / tickets / rest rather than main + aside so
+ * that exactly ONE ticket panel exists in the document. Rendering it twice and
+ * hiding one would duplicate ids and break the quantity steppers.
+ *
+ * A finished gig redirects to /past-gigs/<slug>, so each event has one
+ * canonical URL and there is only one event template to maintain.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import EventHero from '@/components/events/EventHero.astro';
+import TicketPanel from '@/components/events/TicketPanel.astro';
+import Lineup from '@/components/events/Lineup.astro';
+import VenuePanel from '@/components/events/VenuePanel.astro';
+import ShareRow from '@/components/events/ShareRow.astro';
+import StickyBuyBar from '@/components/events/StickyBuyBar.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import SocialLinks from '@/components/site/SocialLinks.astro';
+import NotFound from '@/components/site/NotFound.astro';
+import Callout from '@/components/ui/Callout.astro';
+import Section from '@/components/ui/Section.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd, musicEventJsonLd } from '@/lib/seo.ts';
+import { paragraphs } from '@/lib/text.ts';
+import { SITE } from '@/lib/site.ts';
+
+const { slug } = Astro.params;
+const services = getServices();
+const event = slug ? await services.events.getBySlug(slug) : null;
+
+if (event?.isPast) {
+  return Astro.redirect(`/past-gigs/${event.slug}`, 301);
+}
+
+if (!event) {
+  Astro.response.status = 404;
+}
+
+const [otherGigs, socialPosts] = event
+  ? await Promise.all([services.events.listUpcoming(4), services.social.listForEvent(event.id)])
+  : [[], []];
+
+const alsoOn = event ? otherGigs.filter((e) => e.id !== event.id).slice(0, 3) : [];
+const body = event ? paragraphs(event.description) : [];
+const isDisrupted = event?.status === 'cancelled' || event?.status === 'postponed';
+
+const description = event
+  ? `${event.title} at ${event.venue.name}, ${event.venue.city}. ${event.dateLabel}, doors ${
+      event.doorsLabel
+    }.${event.priceFromLabel ? ` Tickets from ${event.priceFromLabel}.` : ''}`
+  : 'Gig not found.';
+---
+
+{
+  !event ? (
+    <SiteLayout title="Gig not found" description={description} noindex>
+      <NotFound
+        title="We cannot find that gig"
+        body="It may have been taken down, or the link may be wrong. Here is what is coming up."
+      />
+    </SiteLayout>
+  ) : (
+    <SiteLayout
+      title={`${event.title} - ${event.venue.name}, ${event.shortDateLabel}`}
+      description={description}
+      image={event.posterUrl ?? '/media/og-default.svg'}
+      imageAlt={event.posterAlt ?? event.title}
+      type="event"
+      flush
+      jsonLd={[
+        musicEventJsonLd(event),
+        breadcrumbJsonLd([
+          { label: 'Home', href: '/' },
+          { label: 'Gigs', href: '/gigs' },
+          { label: event.title, href: event.href },
+        ]),
+      ]}
+    >
+      <EventHero event={event} />
+
+      <div class="event-body container-wide">
+        <div class="event-intro">
+          {isDisrupted && event.statusMessage && (
+            <Callout
+              tone="stop"
+              label={event.status === 'cancelled' ? 'Cancelled' : 'Postponed'}
+              title={
+                event.status === 'cancelled'
+                  ? 'This show is not going ahead'
+                  : 'This show has been moved'
+              }
+            >
+              <p>{event.statusMessage}</p>
+            </Callout>
+          )}
+
+          <div class="event-description prose">
+            {body.map((paragraph) => (
+              <p>{paragraph}</p>
+            ))}
+          </div>
+        </div>
+
+        <aside class="event-tickets" aria-label="Tickets">
+          <TicketPanel event={event} />
+        </aside>
+
+        <div class="event-rest">
+          <section aria-labelledby="lineup-heading" class="event-block">
+            <h2 class="display display-sm" id="lineup-heading">Line-up</h2>
+            <Lineup lineup={event.lineup} />
+          </section>
+
+          <section aria-labelledby="venue-heading" class="event-block">
+            <h2 class="visually-hidden" id="venue-heading">Venue and accessibility</h2>
+            <VenuePanel event={event} />
+          </section>
+
+          {(Object.keys(event.links).length > 0 || socialPosts.length > 0) && (
+            <section aria-labelledby="event-social-heading" class="event-block">
+              <h2 class="display display-sm" id="event-social-heading">Follow this one</h2>
+              <SocialLinks links={event.links} subject={event.title} />
+              {socialPosts.length > 0 && (
+                <ul class="event-posts">
+                  {socialPosts.map((item) => (
+                    <li>
+                      <a href={item.post.url} rel="noopener">
+                        <span class="event-post-network">{item.networkLabel}</span>
+                        <span>{item.post.caption}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {event.photography && (
+            <section aria-labelledby="photography-heading" class="event-block">
+              <h2 class="visually-hidden" id="photography-heading">Photography</h2>
+              <div class="event-photography surface">
+                <p class="eyebrow eyebrow-accent">Photography</p>
+                <p>
+                  This night is being shot by{' '}
+                  {event.photography.photographerUrl ? (
+                    <a href={event.photography.photographerUrl} rel="noopener">{event.photography.credit}</a>
+                  ) : (
+                    event.photography.credit
+                  )}. Photographs usually go up within a week of the gig.
+                </p>
+                {event.photography.galleryUrl && (
+                  <p>
+                    <a href={event.photography.galleryUrl} rel="noopener">
+                      View the full gallery
+                    </a>
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          <div class="event-share">
+            <ShareRow
+              title={`${event.title} - ${SITE.shortName}`}
+              path={event.href}
+              summary={`${event.title} at ${event.venue.name}, ${event.dateLabel}`}
+            />
+          </div>
+        </div>
+      </div>
+
+      {alsoOn.length > 0 && (
+        <Section
+          eyebrow="Also coming up"
+          heading="More Amped Up nights"
+          actionHref="/gigs"
+          actionLabel="All gigs"
+          wide
+          tight
+        >
+          <div class="grid-cards">
+            {alsoOn.map((other) => (
+              <EventCard event={other} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      <StickyBuyBar event={event} />
+    </SiteLayout>
+  )
+}
+
+<style>
+  .event-body {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-8);
+  }
+
+  .event-intro,
+  .event-rest {
+    display: grid;
+    gap: var(--s-6);
+    min-width: 0;
+  }
+
+  .event-description {
+    font-size: var(--step-0);
+  }
+
+  .event-block {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .event-posts {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .event-posts a {
+    display: grid;
+    gap: 0.2em;
+    padding: var(--s-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    text-decoration: none;
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .event-posts a:hover {
+    border-color: var(--volt);
+    color: var(--text);
+  }
+
+  .event-post-network {
+    font-family: var(--font-display);
+    font-size: 0.64rem;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .event-photography {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-5);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .event-photography a {
+    color: var(--volt);
+  }
+
+  .event-share {
+    padding-top: var(--s-4);
+    border-top: 1px solid var(--hairline);
+  }
+
+  /*
+   * Desktop: two explicit columns and three explicit placements. The ticket
+   * panel spans both body rows so it can stay sticky for the whole scroll,
+   * without needing an open-ended row span.
+   */
+  @media (min-width: 64rem) {
+    .event-body {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
+      column-gap: var(--s-8);
+      align-items: start;
+    }
+
+    .event-intro {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .event-rest {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .event-tickets {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      position: sticky;
+      top: calc(var(--header-h) + var(--s-4));
+    }
+  }
+</style>

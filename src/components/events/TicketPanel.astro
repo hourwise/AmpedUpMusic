@@ -1,0 +1,419 @@
+---
+/**
+ * The ticket panel: the commercial heart of the event page.
+ *
+ * Design decisions:
+ *  - Each ticket type is a row with a quantity stepper and its own price, so
+ *    there is no hidden "select type" step. On a phone the whole row is one
+ *    tap target column with 44px controls.
+ *  - Unavailable types are shown, not hidden. "Early Bird - sold out" tells a
+ *    customer that they are late rather than that the price changed.
+ *  - The running total and the single Checkout button are sticky at the bottom
+ *    of the panel, so the commitment step is always in view while choosing.
+ *
+ * AMPED-01 does not take money. The stepper is real (it does arithmetic in the
+ * browser), the Checkout button is inert and explains where the SumUp hosted
+ * checkout will begin.
+ */
+import AvailabilityBadge from './AvailabilityBadge.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import { formatShortDate, formatTime } from '@/lib/dates.ts';
+import type { EventView } from '@/types/view.ts';
+
+interface Props {
+  event: EventView;
+}
+
+const { event } = Astro.props;
+const isDisrupted = event.status === 'cancelled' || event.status === 'postponed';
+const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
+---
+
+<section class="tickets surface" id="tickets" aria-labelledby="tickets-heading">
+  <header class="tickets-head">
+    <h2 class="display display-sm" id="tickets-heading">Tickets</h2>
+    <AvailabilityBadge state={event.availability} long />
+  </header>
+
+  {
+    isDisrupted ? (
+      <div class="tickets-disrupted">
+        <Callout
+          tone="stop"
+          label={event.status === 'cancelled' ? 'Cancelled' : 'Postponed'}
+          title={
+            event.status === 'cancelled'
+              ? 'This show is not going ahead'
+              : 'This show has moved to a new date'
+          }
+        >
+          <p>{event.statusMessage}</p>
+        </Callout>
+      </div>
+    ) : event.ticketTypes.length === 0 ? (
+      <p class="tickets-none muted">
+        Tickets for this show are not being sold online. Pay on the door, cash or card.
+      </p>
+    ) : (
+      <>
+        <ul class="tickets-list" data-ticket-list>
+          {event.ticketTypes.map((ticket) => (
+            <li class:list={['ticket', !ticket.purchasable && 'ticket-unavailable']}>
+              <div class="ticket-main">
+                <p class="ticket-name">{ticket.name}</p>
+                {ticket.description && <p class="ticket-desc">{ticket.description}</p>}
+                <p class="ticket-window">
+                  {ticket.availability === 'not-yet-on-sale' && ticket.salesOpenAt && (
+                    <span>
+                      On sale {formatShortDate(ticket.salesOpenAt)} at {formatTime(ticket.salesOpenAt)}
+                    </span>
+                  )}
+                  {ticket.availability === 'available' && ticket.salesCloseAt && (
+                    <span>Online sales close {formatShortDate(ticket.salesCloseAt)}</span>
+                  )}
+                  {ticket.availability === 'selling-fast' && ticket.salesCloseAt && (
+                    <span>Online sales close {formatShortDate(ticket.salesCloseAt)}</span>
+                  )}
+                </p>
+              </div>
+
+              <div class="ticket-side">
+                <p class="ticket-price">{ticket.priceLabel}</p>
+                <AvailabilityBadge state={ticket.availability} size="sm" />
+              </div>
+
+              <div class="ticket-controls">
+                {ticket.purchasable ? (
+                  <div
+                    class="stepper"
+                    data-stepper
+                    data-price={ticket.priceInPence}
+                    data-max={Math.min(ticket.maxPerOrder, ticket.inventory.available)}
+                  >
+                    <button
+                      type="button"
+                      class="stepper-btn"
+                      data-step="-1"
+                      aria-label={`One fewer ${ticket.name} ticket`}
+                    >
+                      <span aria-hidden="true">-</span>
+                    </button>
+                    <output
+                      class="stepper-value"
+                      data-value
+                      aria-live="polite"
+                      aria-label={`${ticket.name} quantity`}
+                    >0</output>
+                    <button
+                      type="button"
+                      class="stepper-btn"
+                      data-step="1"
+                      aria-label={`One more ${ticket.name} ticket`}
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  </div>
+                ) : (
+                  <p class="ticket-closed">
+                    {ticket.availability === 'sold-out' ? 'None left' : 'Not on sale'}
+                  </p>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div class="tickets-foot">
+          <p class="tickets-total">
+            <span class="tickets-total-label">Total</span>
+            <output class="tickets-total-value" data-total aria-live="polite">&pound;0.00</output>
+          </p>
+          <Button
+            variant="volt"
+            size="lg"
+            block
+            data-checkout
+            inert={!anyPurchasable}
+            aria-describedby="checkout-note"
+          >
+            {anyPurchasable ? 'Checkout' : 'Not on sale'}
+          </Button>
+        </div>
+
+        <div id="checkout-note">
+          <ScaffoldNote slice="AMPED-07B">
+            Checkout is not connected. In V1 this button creates the order and reservation
+            (AMPED-06A/06B), then redirects to a SumUp Hosted Checkout created server-side. Payment
+            is confirmed by reading the result back from SumUp, never from the return URL.
+          </ScaffoldNote>
+        </div>
+
+        <ul class="tickets-reassurance">
+          <li>Tickets arrive by email with a QR code. Bring your phone or a printout.</li>
+          <li>Maximum {event.ticketTypes[0]?.maxPerOrder ?? 6} tickets per order.</li>
+          <li><a href="/ticket-terms">Ticket terms, refunds and cancellations</a></li>
+        </ul>
+      </>
+    )
+  }
+</section>
+
+<script>
+  // Quantity steppers and the running total. Pure arithmetic in the browser;
+  // the authoritative price is always recalculated server-side at checkout.
+  const panel = document.querySelector<HTMLElement>('[data-ticket-list]');
+  const totalOutput = document.querySelector<HTMLOutputElement>('[data-total]');
+  const checkout = document.querySelector<HTMLElement>('[data-checkout]');
+
+  const gbp = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
+
+  function recalculate() {
+    if (!panel || !totalOutput) return;
+    let pence = 0;
+    let count = 0;
+    panel.querySelectorAll<HTMLElement>('[data-stepper]').forEach((stepper) => {
+      const value = Number(stepper.querySelector('[data-value]')?.textContent ?? '0');
+      pence += value * Number(stepper.dataset.price ?? '0');
+      count += value;
+    });
+    totalOutput.textContent = gbp.format(pence / 100);
+    if (checkout instanceof HTMLElement) {
+      checkout.textContent = count > 0 ? `Checkout - ${count} ticket${count === 1 ? '' : 's'}` : 'Checkout';
+    }
+  }
+
+  panel?.querySelectorAll<HTMLElement>('[data-stepper]').forEach((stepper) => {
+    const output = stepper.querySelector<HTMLOutputElement>('[data-value]');
+    const max = Number(stepper.dataset.max ?? '6');
+
+    stepper.querySelectorAll<HTMLButtonElement>('[data-step]').forEach((button) => {
+      button.addEventListener('click', () => {
+        if (!output) return;
+        const step = Number(button.dataset.step ?? '0');
+        const next = Math.min(max, Math.max(0, Number(output.textContent ?? '0') + step));
+        output.textContent = String(next);
+        stepper.querySelectorAll<HTMLButtonElement>('[data-step]').forEach((b) => {
+          const s = Number(b.dataset.step ?? '0');
+          b.disabled = (s < 0 && next === 0) || (s > 0 && next >= max);
+        });
+        recalculate();
+      });
+    });
+
+    // Start with "-" disabled, since every stepper starts at zero.
+    stepper.querySelector<HTMLButtonElement>('[data-step="-1"]')?.setAttribute('disabled', '');
+  });
+
+  checkout?.addEventListener('click', (event) => {
+    event.preventDefault();
+    window.alert(
+      'Scaffold only (AMPED-01).\n\nIn V1 this creates an order, reserves the tickets for 30 minutes and redirects to SumUp Hosted Checkout. No payment is taken here.',
+    );
+  });
+</script>
+
+<style>
+  .tickets {
+    padding: var(--s-5);
+    display: grid;
+    gap: var(--s-4);
+    scroll-margin-top: calc(var(--header-h) + var(--s-4));
+  }
+
+  .tickets-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .tickets-list {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .ticket {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'main side'
+      'controls controls';
+    gap: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-inset);
+    transition: border-color var(--fast) var(--ease);
+  }
+
+  .ticket:hover {
+    border-color: var(--hairline-strong);
+  }
+
+  .ticket-unavailable {
+    opacity: 0.55;
+  }
+
+  .ticket-main {
+    grid-area: main;
+    display: grid;
+    gap: 0.2em;
+    align-content: start;
+  }
+
+  .ticket-name {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-0);
+  }
+
+  .ticket-desc {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+    max-width: 44ch;
+  }
+
+  .ticket-window {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .ticket-window:empty {
+    display: none;
+  }
+
+  .ticket-side {
+    grid-area: side;
+    display: grid;
+    gap: var(--s-2);
+    justify-items: end;
+    align-content: start;
+  }
+
+  .ticket-price {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: var(--step-1);
+    line-height: 1;
+  }
+
+  .ticket-controls {
+    grid-area: controls;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .ticket-closed {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  /* --- Stepper ----------------------------------------------------------- */
+
+  .stepper {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    overflow: hidden;
+    background: var(--ink-raised-2);
+  }
+
+  .stepper-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+    display: grid;
+    place-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--text);
+    font-size: 1.25rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+
+  .stepper-btn:hover:not(:disabled) {
+    background: var(--volt);
+    color: var(--text-on-accent);
+  }
+
+  .stepper-btn:disabled {
+    color: var(--text-faint);
+    cursor: not-allowed;
+  }
+
+  .stepper-value {
+    min-width: 2.5rem;
+    text-align: center;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-0);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Foot -------------------------------------------------------------- */
+
+  .tickets-foot {
+    display: grid;
+    gap: var(--s-3);
+    padding-top: var(--s-4);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .tickets-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .tickets-total-label {
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .tickets-total-value {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: var(--step-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tickets-reassurance {
+    display: grid;
+    gap: var(--s-2);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .tickets-reassurance a {
+    color: var(--text-muted);
+  }
+
+  .tickets-none {
+    font-size: var(--step--1);
+  }
+
+  @media (min-width: 30rem) {
+    .ticket {
+      grid-template-columns: 1fr auto auto;
+      grid-template-areas: 'main side controls';
+      align-items: center;
+      gap: var(--s-4);
+    }
+
+    .ticket-controls {
+      justify-content: flex-start;
+    }
+  }
+</style>

@@ -1,0 +1,143 @@
+---
+/**
+ * Mobile-only sticky purchase bar.
+ *
+ * The dominant journey is a social post on a phone. Once someone has scrolled
+ * past the hero to read the description and the lineup, the ticket action is
+ * gone - so it comes back, pinned to the bottom of the viewport, showing the
+ * price and the date so it is a reminder rather than a nag.
+ *
+ * It appears only after the hero has scrolled out of view, is hidden on
+ * desktop where the ticket panel sits in a sticky column instead, and is
+ * hidden entirely when nothing is on sale.
+ */
+import type { EventView } from '@/types/view.ts';
+
+interface Props {
+  event: EventView;
+}
+
+const { event } = Astro.props;
+---
+
+{
+  event.onSale && (
+    <div class="buybar" data-buybar hidden>
+      <div class="buybar-inner">
+        <div class="buybar-text">
+          <span class="buybar-title">{event.title}</span>
+          <span class="buybar-meta">
+            {event.dayLabel}
+            {event.priceFromLabel && <> &middot; from {event.priceFromLabel}</>}
+          </span>
+        </div>
+        <a class="buybar-cta" href="#tickets">Tickets</a>
+      </div>
+    </div>
+  )
+}
+
+<script>
+  const bar = document.querySelector<HTMLElement>('[data-buybar]');
+  const hero = document.querySelector('.hero');
+
+  if (bar && hero && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        bar.hidden = Boolean(entry?.isIntersecting);
+      },
+      { threshold: 0 },
+    );
+    observer.observe(hero);
+  } else if (bar) {
+    // Without an observer, showing it always is better than never showing it.
+    bar.hidden = false;
+  }
+</script>
+
+<style>
+  .buybar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    padding: var(--s-3) var(--gutter) calc(var(--s-3) + env(safe-area-inset-bottom));
+    background: rgb(8 8 11 / 94%);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--hairline-strong);
+    animation: buybar-in var(--normal) var(--ease-out);
+  }
+
+  .buybar[hidden] {
+    display: none;
+  }
+
+  @keyframes buybar-in {
+    from {
+      transform: translateY(100%);
+    }
+
+    to {
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .buybar {
+      animation: none;
+    }
+  }
+
+  .buybar-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    max-width: var(--container);
+    margin-inline: auto;
+  }
+
+  .buybar-text {
+    display: grid;
+    min-width: 0;
+  }
+
+  .buybar-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step--1);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .buybar-meta {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .buybar-cta {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-6);
+    border-radius: var(--r-pill);
+    background: var(--volt);
+    color: var(--text-on-accent);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step--1);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-decoration: none;
+    box-shadow: var(--glow-volt);
+  }
+
+  @media (min-width: 64rem) {
+    .buybar {
+      display: none;
+    }
+  }
+</style>

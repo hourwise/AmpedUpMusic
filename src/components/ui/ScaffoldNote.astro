@@ -1,0 +1,62 @@
+---
+/**
+ * Marks a control that looks finished but is not wired up.
+ *
+ * AMPED-01 is a visual scaffold. Anything that would take money, send an
+ * email, write to a database or admit someone to a venue is inert, and it
+ * says so here rather than failing silently. Every instance names the slice
+ * that will implement it, so the scaffold doubles as a to-do list.
+ *
+ * Every one of these should be gone by AMPED-12. Grep for `ScaffoldNote` to
+ * find what is left.
+ */
+interface Props {
+  /** The slice that implements this, e.g. "AMPED-07B". */
+  slice: string;
+  /** What will happen here once it is built. */
+  children?: unknown;
+  inline?: boolean;
+}
+
+const { slice, inline = false } = Astro.props;
+---
+
+<p class:list={['scaffold-note', inline && 'scaffold-note-inline']}>
+  <span class="scaffold-slice">{slice}</span>
+  <span class="scaffold-text"><slot /></span>
+</p>
+
+<style>
+  .scaffold-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s-2);
+    padding: var(--s-2) var(--s-3);
+    border: 1px dashed color-mix(in srgb, var(--stage-cyan) 40%, transparent);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--stage-cyan) 6%, transparent);
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .scaffold-note-inline {
+    border: 0;
+    background: none;
+    padding: 0;
+  }
+
+  .scaffold-slice {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--stage-cyan);
+    white-space: nowrap;
+  }
+
+  .scaffold-text {
+    flex: 1;
+    min-width: 12rem;
+  }
+</style>

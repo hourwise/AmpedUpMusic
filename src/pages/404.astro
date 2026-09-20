@@ -1,0 +1,14 @@
+---
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import NotFound from '@/components/site/NotFound.astro';
+
+Astro.response.status = 404;
+---
+
+<SiteLayout
+  title="Page not found"
+  description="That page could not be found. Here is what is coming up at Amped Up Music Promotions."
+  noindex
+>
+  <NotFound />
+</SiteLayout>

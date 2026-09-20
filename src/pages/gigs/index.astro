@@ -1,0 +1,65 @@
+---
+/** All announced upcoming gigs. */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+import { plural } from '@/lib/text.ts';
+
+const services = getServices();
+const events = await services.events.listUpcoming();
+
+const venues = [...new Set(events.map((e) => e.venue.city))].sort();
+---
+
+<SiteLayout
+  title="Gigs"
+  description="Every upcoming Amped Up Music Promotions gig, with ticket availability and venue information."
+  jsonLd={[breadcrumbJsonLd([{ label: 'Home', href: '/' }, { label: 'Gigs', href: '/gigs' }])]}
+>
+  <PageHeader
+    eyebrow="What is on"
+    title="Upcoming gigs"
+    intro="Everything currently announced, soonest first. Tickets are sold here with no booking fee."
+  >
+    <p class="gigs-count">
+      {events.length} {plural(events.length, 'gig')}
+      {venues.length > 0 && <> across {venues.join(', ')}</>}
+    </p>
+  </PageHeader>
+
+  <div class="container-wide gigs-body">
+    {
+      events.length > 0 ? (
+        <div class="grid-cards">
+          {events.map((event, index) => (
+            <EventCard event={event} priority={index < 3} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="Nothing announced right now"
+          body="We are between runs. Join the gig alerts list and you will hear about the next one as soon as it goes on sale."
+          actionHref="/contact"
+          actionLabel="Get in touch"
+        />
+      )
+    }
+  </div>
+</SiteLayout>
+
+<style>
+  .gigs-count {
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .gigs-body {
+    padding-bottom: var(--s-9);
+  }
+</style>

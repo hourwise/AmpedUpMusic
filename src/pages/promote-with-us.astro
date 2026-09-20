@@ -1,0 +1,193 @@
+---
+/**
+ * Artist and venue enquiries.
+ *
+ * The form is not connected during AMPED-01. AMPED-10A wires it to a POST
+ * endpoint with server-side Turnstile verification - and the note on the page
+ * says so, because a form that silently swallows a band pitch is worse than
+ * no form at all.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Field from '@/components/ui/Field.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import { SITE } from '@/lib/site.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+
+export const prerender = true;
+
+const KINDS = [
+  { value: 'artist', label: 'I am in a band and want to play' },
+  { value: 'venue', label: 'I run a venue and want to host' },
+  { value: 'promoter', label: 'I am a promoter and want to work together' },
+  { value: 'press', label: 'Press, photo pass or interview' },
+  { value: 'general', label: 'Something else' },
+];
+---
+
+<SiteLayout
+  title="Promote with us"
+  description="Play an Amped Up gig, offer us your venue, or work with us on a night. Tell us what you have got."
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Promote with us', href: '/promote-with-us' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Artists and venues"
+    title="Promote with us"
+    intro="We read everything that comes through here, and we reply to everything, even when the answer is no."
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="promote container-wide">
+    <div class="promote-form surface">
+      <h2 class="display display-sm">Tell us about it</h2>
+
+      <form class="form" data-mock="AMPED-10A enquiries with Turnstile">
+        <Field
+          as="select"
+          name="kind"
+          label="What is this about"
+          required
+          options={KINDS}
+        />
+        <div class="form-row">
+          <Field name="name" label="Your name" required autocomplete="name" />
+          <Field name="email" label="Email" type="email" required autocomplete="email" inputmode="email" />
+        </div>
+        <div class="form-row">
+          <Field
+            name="subject"
+            label="Band or venue name"
+            hint="Whatever we should call you in the diary."
+          />
+          <Field name="phone" label="Phone" type="tel" autocomplete="tel" inputmode="tel" />
+        </div>
+        <Field
+          name="links"
+          label="Links"
+          hint="Bandcamp, Spotify, a video, anything we can actually listen to. One per line."
+          as="textarea"
+          rows={3}
+        />
+        <Field
+          name="message"
+          label="Message"
+          as="textarea"
+          rows={6}
+          required
+          hint="Where you are based, how many people you can bring, and any dates you are after."
+        />
+
+        <div class="form-turnstile">
+          <ScaffoldNote slice="AMPED-10A">
+            A Cloudflare Turnstile widget goes here. The token must be verified server-side before
+            the enquiry is stored - rendering the widget alone is not protection.
+          </ScaffoldNote>
+        </div>
+
+        <div class="form-actions">
+          <Button type="submit" variant="volt" size="lg">Send it</Button>
+          <p class="form-note">
+            We usually reply within a week. If it is urgent, email
+            <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.
+          </p>
+        </div>
+      </form>
+    </div>
+
+    <aside class="promote-aside">
+      <Callout tone="volt" label="For bands" title="What helps">
+        <p>
+          A link we can actually listen to, roughly how many people you can bring on a Friday in
+          your own town, and whether you have played round here before. That is genuinely all we
+          need to make a decision.
+        </p>
+      </Callout>
+
+      <Callout tone="info" label="What we offer" title="How we work with artists">
+        <p>
+          A proper PA and an engineer, posters printed and put up, the gig on our socials and our
+          mailing list, a photographer on the night, and the photographs afterwards to keep.
+        </p>
+        <p>
+          We pay a guarantee or a door split, agreed in writing before the night, and we pay on the
+          night.
+        </p>
+      </Callout>
+
+      <Callout tone="info" label="For venues" title="What we need from a room">
+        <p>
+          A licence that lets us finish at eleven or later, a PA or somewhere to put one, and a bar
+          that wants the trade. Capacity from about eighty upwards. Step-free access is a strong
+          preference and we will say so publicly either way.
+        </p>
+      </Callout>
+    </aside>
+  </div>
+</SiteLayout>
+
+<style>
+  .promote {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-9);
+  }
+
+  .promote-form {
+    padding: var(--s-6);
+    display: grid;
+    gap: var(--s-5);
+  }
+
+  .form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .form-row {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .form-actions {
+    display: grid;
+    gap: var(--s-3);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .form-note {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .form-note a {
+    color: var(--volt);
+  }
+
+  .promote-aside {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  @media (min-width: 40rem) {
+    .form-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 62rem) {
+    .promote {
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+      column-gap: var(--s-7);
+      align-items: start;
+    }
+  }
+</style>

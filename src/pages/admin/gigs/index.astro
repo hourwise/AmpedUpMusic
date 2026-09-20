@@ -1,0 +1,179 @@
+---
+/**
+ * The gig list - the operator working diary.
+ *
+ * Shows everything including drafts and the archive, because hiding drafts is
+ * how a gig ends up unannounced two weeks before the date. Sold/capacity is on
+ * every row so the list doubles as a sales overview and nobody has to open
+ * four gigs to see which one needs a push.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import StatusBadge from '@/components/admin/StatusBadge.astro';
+import AvailabilityBadge from '@/components/events/AvailabilityBadge.astro';
+import Button from '@/components/ui/Button.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { formatShortDate } from '@/lib/dates.ts';
+
+const services = getServices();
+const gigs = await services.admin.listAll();
+
+const summaries = new Map(
+  await Promise.all(
+    gigs.map(async (gig) => [gig.id, await services.admin.salesSummary(gig.id)] as const),
+  ),
+);
+
+const upcoming = gigs.filter((g) => !g.isPast);
+const past = gigs.filter((g) => g.isPast);
+---
+
+<AdminLayout
+  title="Gigs"
+  subtitle="Every promotion, including drafts. Drafts are not visible to the public until you publish them."
+  wide
+>
+  <Button slot="actions" href="/admin/gigs/new" variant="volt" size="md">New promotion</Button>
+
+  <section class="gigs-section" aria-labelledby="upcoming-heading">
+    <h2 class="display display-sm" id="upcoming-heading">Coming up</h2>
+
+    {
+      upcoming.length > 0 ? (
+        <DataTable caption="Upcoming and draft gigs, soonest first">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Gig</th>
+              <th scope="col">Venue</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="num">Sold</th>
+              <th scope="col">Tickets</th>
+              <th scope="col" class="num">Taken</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {upcoming.map((gig) => {
+              const summary = summaries.get(gig.id);
+              return (
+                <tr>
+                  <td class="mono">{formatShortDate(gig.startsAt)}</td>
+                  <td>
+                    <a href={`/admin/gigs/${gig.id}`}>{gig.title}</a>
+                    {gig.lineup.length > 1 && (
+                      <span class="dim block">+{gig.lineup.length - 1} more on the bill</span>
+                    )}
+                  </td>
+                  <td class="dim">{gig.venue.name}</td>
+                  <td>
+                    <StatusBadge kind="event" status={gig.status} />
+                  </td>
+                  <td class="num">
+                    {summary ? `${summary.sold}/${summary.capacity}` : '-'}
+                    {summary && summary.capacity > 0 && (
+                      <span class="dim block">{summary.percentSold}%</span>
+                    )}
+                  </td>
+                  <td>
+                    <AvailabilityBadge state={gig.availability} size="sm" />
+                  </td>
+                  <td class="num">{summary?.grossLabel ?? '-'}</td>
+                  <td>
+                    <span class="row-actions">
+                      <Button href={`/admin/gigs/${gig.id}`} variant="ghost" size="sm">Edit</Button>
+                      <Button
+                        href={gig.status === 'draft' ? `/admin/gigs/${gig.id}` : gig.href}
+                        variant="ghost"
+                        size="sm"
+                      >
+                        {gig.status === 'draft' ? 'Preview' : 'View'}
+                      </Button>
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </DataTable>
+      ) : (
+        <EmptyState
+          title="No gigs coming up"
+          body="Create a promotion and it will appear here and on the website."
+          actionHref="/admin/gigs/new"
+          actionLabel="New promotion"
+        />
+      )
+    }
+  </section>
+
+  <section class="gigs-section" aria-labelledby="past-heading">
+    <h2 class="display display-sm" id="past-heading">Been and gone</h2>
+    <p class="gigs-note">
+      Gigs move here on their own once the date has passed. You do not have to do anything.
+    </p>
+
+    {
+      past.length > 0 ? (
+        <DataTable caption="Completed gigs, most recent first">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Gig</th>
+              <th scope="col">Venue</th>
+              <th scope="col" class="num">Sold</th>
+              <th scope="col" class="num">Checked in</th>
+              <th scope="col" class="num">Taken</th>
+              <th scope="col" class="num">Photos</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {past.map((gig) => {
+              const summary = summaries.get(gig.id);
+              return (
+                <tr>
+                  <td class="mono">{formatShortDate(gig.startsAt)}</td>
+                  <td>
+                    <a href={`/admin/gigs/${gig.id}`}>{gig.title}</a>
+                  </td>
+                  <td class="dim">{gig.venue.name}</td>
+                  <td class="num">{summary?.sold ?? '-'}</td>
+                  <td class="num">{summary?.checkedIn ?? '-'}</td>
+                  <td class="num">{summary?.grossLabel ?? '-'}</td>
+                  <td class="num">{gig.gallery.length}</td>
+                  <td>
+                    <span class="row-actions">
+                      <Button href={`/admin/gigs/${gig.id}`} variant="ghost" size="sm">Edit</Button>
+                      <Button href="/admin/media" variant="ghost" size="sm">Photos</Button>
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </DataTable>
+      ) : (
+        <EmptyState variant="quiet" title="Nothing in the archive yet" />
+      )
+    }
+  </section>
+</AdminLayout>
+
+<style>
+  .gigs-section {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .gigs-note {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .block {
+    display: block;
+    font-size: var(--step--2);
+  }
+</style>

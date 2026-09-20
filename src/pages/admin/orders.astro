@@ -1,0 +1,223 @@
+---
+/**
+ * Orders.
+ *
+ * Built around the question that actually gets asked: "somebody has emailed
+ * saying they cannot find their tickets, can you look them up". So the search
+ * box is the first thing on the page and it matches on anything the customer
+ * might quote.
+ *
+ * The `event` and `q` query parameters are read here so the dashboard and
+ * gig list can deep-link straight into a filtered view.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import StatusBadge from '@/components/admin/StatusBadge.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import AdminIcon from '@/components/admin/AdminIcon.astro';
+import Button from '@/components/ui/Button.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import { getServices } from '@/services/index.ts';
+import { formatPence } from '@/lib/money.ts';
+
+const services = getServices();
+
+const eventId = Astro.url.searchParams.get('event') ?? '';
+const query = Astro.url.searchParams.get('q') ?? '';
+
+const gigs = await services.admin.listAll();
+const selected = eventId ? gigs.find((g) => g.id === eventId) : undefined;
+
+const orders = query
+  ? await services.orders.search(query, eventId || undefined)
+  : eventId
+    ? await services.orders.listForEvent(eventId)
+    : await services.orders.listRecent(60);
+
+const paid = orders.filter((o) => o.order.status === 'paid');
+const gross = paid.reduce((sum, o) => sum + o.order.totalInPence, 0);
+const ticketCount = paid.reduce((sum, o) => sum + o.ticketCount, 0);
+---
+
+<AdminLayout
+  title="Orders"
+  subtitle={
+    selected
+      ? `Orders for ${selected.title}. Search by name, email, order number or ticket reference.`
+      : 'Search by name, email, order number or ticket reference.'
+  }
+  wide
+>
+  <form class="order-filter" method="get" action="/admin/orders">
+    <div class="order-search">
+      <label class="visually-hidden" for="order-q">Search orders</label>
+      <input
+        id="order-q"
+        name="q"
+        type="search"
+        value={query}
+        inputmode="search"
+        placeholder="Name, email, AMP-26-00814, or a ticket reference"
+      />
+      <AdminIcon name="search" size={20} class="order-search-icon" />
+    </div>
+
+    <label class="visually-hidden" for="order-event">Filter by gig</label>
+    <select id="order-event" name="event">
+      <option value="">All gigs</option>
+      {
+        gigs.map((gig) => (
+          <option value={gig.id} selected={gig.id === eventId}>
+            {gig.title} - {gig.shortDateLabel}
+          </option>
+        ))
+      }
+    </select>
+
+    <Button type="submit" variant="solid" size="md">Search</Button>
+    {(query || eventId) && <Button href="/admin/orders" variant="ghost" size="md">Clear</Button>}
+  </form>
+
+  <div class="order-stats">
+    <StatCard label="Orders shown" value={orders.length} detail={query ? 'Matching your search' : 'Most recent first'} />
+    <StatCard label="Paid" value={paid.length} tone="go" detail={`${ticketCount} tickets`} />
+    <StatCard label="Value" value={formatPence(gross)} tone="volt" detail="Paid orders shown" />
+    <StatCard
+      label="Needs a look"
+      value={orders.filter((o) => o.order.status === 'awaiting_payment' || o.order.status === 'refunded').length}
+      detail="In checkout or refunded"
+      tone="warn"
+    />
+  </div>
+
+  {
+    orders.length > 0 ? (
+      <DataTable caption="Ticket orders">
+        <thead>
+          <tr>
+            <th scope="col">Reference</th>
+            <th scope="col">Customer</th>
+            <th scope="col">Gig</th>
+            <th scope="col">What they bought</th>
+            <th scope="col" class="num">Total</th>
+            <th scope="col">Status</th>
+            <th scope="col" class="num">In</th>
+            <th scope="col">Placed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((row) => (
+            <tr>
+              <td class="mono">{row.order.reference}</td>
+              <td>
+                {row.order.customerName}
+                <span class="dim block">{row.order.customerEmail}</span>
+              </td>
+              <td>
+                <a href={`/admin/gigs?highlight=${row.order.eventId}`}>{row.eventTitle}</a>
+              </td>
+              <td>
+                {row.order.items.map((item) => (
+                  <span class="block">
+                    {item.quantity} &times; {item.ticketTypeName}
+                  </span>
+                ))}
+              </td>
+              <td class="num">{row.totalLabel}</td>
+              <td>
+                <StatusBadge kind="order" status={row.order.status} />
+              </td>
+              <td class="num">
+                {row.checkedInCount}/{row.ticketCount}
+              </td>
+              <td class="dim">{row.placedLabel}</td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    ) : (
+      <EmptyState
+        title={query ? 'Nothing matches that' : 'No orders yet'}
+        body={
+          query
+            ? 'Try just the surname, or the first part of the email address. Order references look like AMP-26-00814.'
+            : 'Orders appear here as soon as somebody buys a ticket.'
+        }
+        actionHref="/admin/orders"
+        actionLabel="Clear the search"
+      />
+    )
+  }
+
+  <ScaffoldNote slice="AMPED-06A">
+    Orders are demonstration records. Refunds stay in SumUp in V1: the operator refunds there, then
+    marks the order refunded here, which voids the tickets. Building our own refund machinery is
+    explicitly out of V1 scope.
+  </ScaffoldNote>
+</AdminLayout>
+
+<style>
+  .order-filter {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .order-search {
+    position: relative;
+  }
+
+  .order-search input {
+    width: 100%;
+    min-height: 3rem;
+    padding: var(--s-2) var(--s-3) var(--s-2) 3rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    background: var(--ink-inset);
+    color: var(--text);
+  }
+
+  .order-search input:focus-visible {
+    border-color: var(--volt);
+  }
+
+  .order-search-icon {
+    position: absolute;
+    left: var(--s-3);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+
+  .order-filter select {
+    min-height: 3rem;
+    padding: var(--s-2) var(--s-3);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    background: var(--ink-inset);
+    color: var(--text);
+  }
+
+  .order-stats {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .block {
+    display: block;
+    font-size: var(--step--2);
+  }
+
+  @media (min-width: 52rem) {
+    .order-filter {
+      grid-template-columns: minmax(0, 1fr) 16rem auto auto;
+      align-items: center;
+    }
+
+    .order-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+</style>

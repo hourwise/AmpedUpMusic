@@ -1,0 +1,119 @@
+---
+/**
+ * The poster slot.
+ *
+ * Two jobs:
+ *  1. Render real artwork at the correct 3:4 aspect ratio with the right
+ *     loading behaviour, so nothing reflows as posters arrive.
+ *  2. Render an honest, designed placeholder when there is no artwork yet -
+ *     which happens constantly in admin while a gig is still a draft. A
+ *     broken image icon in the admin gig list would look like a bug; this
+ *     looks like a slot waiting to be filled.
+ */
+import { initials } from '@/lib/text.ts';
+
+interface Props {
+  src?: string;
+  alt?: string;
+  /** Used to derive the placeholder monogram and its accent. */
+  title: string;
+  ratio?: 'poster' | 'square' | 'wide';
+  /** Above-the-fold posters should not be lazy. */
+  priority?: boolean;
+  class?: string;
+}
+
+const { src, alt, title, ratio = 'poster', priority = false, class: className = '' } = Astro.props;
+
+/** Deterministic accent so the same gig always gets the same placeholder. */
+const ACCENTS = ['var(--volt)', 'var(--stage-pink)', 'var(--stage-cyan)', 'var(--stage-violet)', 'var(--ember)'];
+let hash = 0;
+for (const char of title) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
+const accent = ACCENTS[hash % ACCENTS.length];
+---
+
+<div class:list={['poster', `poster-${ratio}`, className]} style={`--accent:${accent}`}>
+  {
+    src ? (
+      <img
+        src={src}
+        alt={alt ?? ''}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding={priority ? 'sync' : 'async'}
+        fetchpriority={priority ? 'high' : 'auto'}
+        class="poster-img"
+      />
+    ) : (
+      <div class="poster-empty" role="img" aria-label={`No artwork has been added for ${title} yet`}>
+        <span class="poster-monogram" aria-hidden="true">{initials(title)}</span>
+        <span class="poster-empty-note" aria-hidden="true">Artwork to come</span>
+      </div>
+    )
+  }
+  <slot />
+</div>
+
+<style>
+  .poster {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--r);
+    background: var(--ink-inset);
+    border: 1px solid var(--hairline);
+    isolation: isolate;
+    /* So the placeholder monogram scales with the slot, not the viewport. */
+    container-type: inline-size;
+  }
+
+  .poster-poster {
+    aspect-ratio: 3 / 4;
+  }
+
+  .poster-square {
+    aspect-ratio: 1 / 1;
+  }
+
+  .poster-wide {
+    aspect-ratio: 3 / 2;
+  }
+
+  .poster-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .poster-empty {
+    display: grid;
+    place-content: center;
+    gap: var(--s-3);
+    height: 100%;
+    background:
+      radial-gradient(80% 60% at 50% 20%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      repeating-linear-gradient(
+        135deg,
+        rgb(255 255 255 / 2.5%) 0 10px,
+        transparent 10px 20px
+      );
+    text-align: center;
+  }
+
+  .poster-monogram {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 70%;
+    font-size: clamp(2.4rem, 18cqw, 5rem);
+    line-height: 1;
+    color: color-mix(in srgb, var(--accent) 80%, white);
+    opacity: 0.62;
+    letter-spacing: -0.03em;
+  }
+
+  .poster-empty-note {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+</style>

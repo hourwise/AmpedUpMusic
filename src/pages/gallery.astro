@@ -1,0 +1,130 @@
+---
+/**
+ * The photographic archive, grouped by the night it was shot.
+ *
+ * Grouping rather than an undifferentiated wall: a photograph of a crowd only
+ * means anything when you know whose crowd it was, and it keeps the page
+ * linked back to the events that own the images.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import GalleryGrid from '@/components/gallery/GalleryGrid.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import Button from '@/components/ui/Button.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+import { SITE } from '@/lib/site.ts';
+
+const services = getServices();
+const past = await services.events.listPast();
+const withGalleries = past.filter((event) => event.gallery.length > 0);
+const total = withGalleries.reduce((sum, event) => sum + event.gallery.length, 0);
+---
+
+<SiteLayout
+  title="Gallery"
+  description={`Photographs from every Amped Up Music Promotions night, shot by ${SITE.photographyPartner.name}.`}
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Gallery', href: '/gallery' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Photography"
+    title="In the room"
+    intro={`${total} photographs from ${withGalleries.length} nights. Every Amped Up gig is shot by ${SITE.photographyPartner.name}.`}
+    trail={[{ label: 'Home', href: '/' }]}
+  >
+    <div class="gallery-cta">
+      <Button href={SITE.photographyPartner.url} variant="outline" size="md" rel="noopener">
+        {SITE.photographyPartner.name}
+      </Button>
+    </div>
+  </PageHeader>
+
+  <div class="container-wide gallery-page">
+    {
+      withGalleries.length === 0 ? (
+        <EmptyState
+          title="No photographs yet"
+          body="Galleries go up within a week of each gig."
+          actionHref="/gigs"
+          actionLabel="See what is coming up"
+        />
+      ) : (
+        withGalleries.map((event) => (
+          <section class="gallery-set" aria-labelledby={`set-${event.slug}`}>
+            <header class="gallery-set-head">
+              <div>
+                <p class="eyebrow">{event.dateLabel}</p>
+                <h2 class="display display-sm" id={`set-${event.slug}`}>
+                  <a href={event.href}>{event.title}</a>
+                </h2>
+                <p class="gallery-set-venue">
+                  {event.venue.name}, {event.venue.city}
+                </p>
+              </div>
+              <p class="gallery-set-count">{event.gallery.length} photographs</p>
+            </header>
+            <GalleryGrid
+              assets={event.gallery}
+              credit={event.photography?.credit}
+              creditUrl={event.photography?.photographerUrl}
+            />
+          </section>
+        ))
+      )
+    }
+  </div>
+</SiteLayout>
+
+<style>
+  .gallery-cta {
+    margin-top: var(--s-2);
+  }
+
+  .gallery-page {
+    display: grid;
+    gap: var(--s-8);
+    padding-bottom: var(--s-9);
+  }
+
+  .gallery-set {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .gallery-set-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--s-3);
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .gallery-set-head h2 a {
+    text-decoration: none;
+  }
+
+  .gallery-set-head h2 a:hover {
+    color: var(--volt);
+  }
+
+  .gallery-set-venue {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    margin-top: 0.2em;
+  }
+
+  .gallery-set-count {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+</style>

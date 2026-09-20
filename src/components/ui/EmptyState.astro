@@ -1,0 +1,97 @@
+---
+/**
+ * Empty state.
+ *
+ * Every list in the site and the admin uses this rather than rendering
+ * nothing, because "nothing" is indistinguishable from "broken" to a
+ * non-technical operator on a phone in a dark venue.
+ */
+import Button from './Button.astro';
+
+interface Props {
+  title: string;
+  body?: string;
+  actionHref?: string;
+  actionLabel?: string;
+  /** `quiet` for inline lists, `panel` for a full section. */
+  variant?: 'quiet' | 'panel';
+}
+
+const { title, body, actionHref, actionLabel, variant = 'panel' } = Astro.props;
+---
+
+<div class:list={['empty', `empty-${variant}`]}>
+  <span class="empty-glyph" aria-hidden="true">
+    <i></i><i></i><i></i>
+  </span>
+  <p class="empty-title">{title}</p>
+  {body && <p class="empty-body">{body}</p>}
+  {
+    actionHref && actionLabel && (
+      <div class="empty-action">
+        <Button href={actionHref} variant="outline" size="sm">{actionLabel}</Button>
+      </div>
+    )
+  }
+  <slot />
+</div>
+
+<style>
+  .empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--s-3);
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  .empty-panel {
+    padding: var(--s-8) var(--s-5);
+    border: 1px dashed var(--hairline-strong);
+    border-radius: var(--r-lg);
+    background: rgb(255 255 255 / 2%);
+  }
+
+  .empty-quiet {
+    padding: var(--s-5) var(--s-4);
+  }
+
+  .empty-glyph {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 1.5rem;
+    opacity: 0.5;
+  }
+
+  .empty-glyph i {
+    display: block;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--text-faint);
+  }
+
+  .empty-glyph i:nth-child(1) {
+    height: 30%;
+  }
+
+  .empty-glyph i:nth-child(2) {
+    height: 55%;
+  }
+
+  .empty-glyph i:nth-child(3) {
+    height: 22%;
+  }
+
+  .empty-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-1);
+    color: var(--text);
+  }
+
+  .empty-body {
+    max-width: 44ch;
+    font-size: var(--step--1);
+  }
+</style>

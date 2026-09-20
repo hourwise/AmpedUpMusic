@@ -1,0 +1,39 @@
+---
+/** Public site chrome: skip link, header, main landmark, footer. */
+import BaseLayout from './BaseLayout.astro';
+import SiteHeader from '@/components/site/SiteHeader.astro';
+import SiteFooter from '@/components/site/SiteFooter.astro';
+import type { PageMeta } from '@/lib/seo.ts';
+
+interface Props extends PageMeta {
+  jsonLd?: Array<Record<string, unknown>>;
+  /** Lets the hero run under the transparent header. */
+  flush?: boolean;
+}
+
+const { flush = false, ...meta } = Astro.props;
+---
+
+<BaseLayout {...meta}>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <SiteHeader />
+  <main id="main" class:list={['site-main', flush && 'site-main-flush']}>
+    <slot />
+  </main>
+  <SiteFooter />
+</BaseLayout>
+
+<style>
+  .site-main {
+    position: relative;
+    z-index: 1;
+    /* The header is sticky and transparent at the top of the page, so content
+       normally starts below it. Heroes opt out with `flush`. */
+    padding-top: var(--s-6);
+  }
+
+  .site-main-flush {
+    padding-top: 0;
+    margin-top: calc(var(--header-h) * -1);
+  }
+</style>

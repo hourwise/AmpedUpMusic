@@ -1,0 +1,707 @@
+---
+/**
+ * Door Mode - the scanner.
+ *
+ * Three modes, switched by a bottom bar sized for thumbs: Scan, Look up,
+ * Guest list. The bottom bar rather than the top because this is held in one
+ * hand and the top of a phone is out of reach.
+ *
+ * AMPED-01 SCOPE: there is no camera and no ticket validation. The viewfinder
+ * is a mock, and the three demonstration buttons show the exact result states
+ * built from real fixture tickets so the layout can be judged honestly.
+ *
+ * AMPED-09A replaces the viewfinder with a real camera decode.
+ * AMPED-09B replaces the demonstration buttons with a call to an atomic
+ * check-in endpoint. That endpoint - not this page - is what guarantees two
+ * phones scanning the same QR at once produce exactly one admission.
+ */
+import DoorLayout from '@/layouts/DoorLayout.astro';
+import ScannerResult from '@/components/admin/ScannerResult.astro';
+import Button from '@/components/ui/Button.astro';
+import AdminIcon from '@/components/admin/AdminIcon.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import { getServices } from '@/services/index.ts';
+import { formatTime } from '@/lib/dates.ts';
+import type { ScanResult } from '@/types/domain.ts';
+
+const { eventId } = Astro.params;
+const services = getServices();
+const event = eventId ? await services.admin.getById(eventId) : null;
+
+if (!event) {
+  Astro.response.status = 404;
+}
+
+const [counts, guestList, sampleOrders] = event
+  ? await Promise.all([
+      services.door.admissionCounts(event.id),
+      services.door.listGuestList(event.id),
+      services.orders.listForEvent(event.id),
+    ])
+  : [null, [], []];
+
+/**
+ * Demonstration results, built from real fixture tickets so the result cards
+ * show plausible names and references rather than "Lorem Ipsum".
+ */
+const firstOrder = sampleOrders[0];
+const firstTicket = firstOrder?.tickets[0];
+
+const DEMO: Record<'valid' | 'used' | 'invalid', ScanResult> = {
+  valid: {
+    outcome: 'valid',
+    ticket: firstTicket,
+    order: firstOrder
+      ? { reference: firstOrder.order.reference, customerName: firstOrder.order.customerName }
+      : undefined,
+    ticketTypeName: firstOrder?.order.items[0]?.ticketTypeName,
+    remainingOnOrder: Math.max(0, (firstOrder?.ticketCount ?? 1) - 1),
+    message: 'Admit.',
+  },
+  used: {
+    outcome: 'already-used',
+    ticket: firstTicket,
+    order: firstOrder
+      ? { reference: firstOrder.order.reference, customerName: firstOrder.order.customerName }
+      : undefined,
+    ticketTypeName: firstOrder?.order.items[0]?.ticketTypeName,
+    previousCheckInAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+    message: 'This ticket has already been scanned.',
+  },
+  invalid: {
+    outcome: 'invalid',
+    message: 'This code is not an Amped Up ticket.',
+  },
+};
+---
+
+{
+  !event || !counts ? (
+    <DoorLayout title="Gig not found">
+      <div class="door-pad">
+        <EmptyState
+          title="That gig does not exist"
+          body="Go back and choose a gig from the list."
+          actionHref="/admin/door"
+          actionLabel="Choose a gig"
+        />
+      </div>
+    </DoorLayout>
+  ) : (
+    <DoorLayout
+      title={event.title}
+      eventTitle={event.title}
+      exitHref="/admin/door"
+      exitLabel="Gigs"
+    >
+      <p slot="meta" class="counter" aria-label="Admissions so far">
+        <output class="counter-in" data-admitted>{counts.admitted}</output>
+        <span class="counter-of">/ {counts.expected}</span>
+      </p>
+
+      <div class="door-screen">
+        <!-- SCAN ---------------------------------------------------------- -->
+        <section class="mode" data-mode="scan" aria-label="Scan tickets">
+          <div class="viewfinder" data-viewfinder>
+            <div class="vf-frame" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+              <div class="vf-line"></div>
+            </div>
+            <p class="vf-copy">Point the camera at the QR code on the ticket</p>
+            <Button variant="volt" size="xl" data-start-scan>Start scanning</Button>
+            <ScaffoldNote slice="AMPED-09A">
+              The camera is not connected. Use the buttons below to see each result.
+            </ScaffoldNote>
+            <div class="vf-demo">
+              <button type="button" data-demo="valid">Show a valid ticket</button>
+              <button type="button" data-demo="used">Show one already used</button>
+              <button type="button" data-demo="invalid">Show an invalid code</button>
+            </div>
+          </div>
+
+          <div class="results" data-results>
+            <ScannerResult result={DEMO.valid} id="result-valid" hidden>
+              <Button variant="solid" size="lg" block data-scan-again>Next ticket</Button>
+            </ScannerResult>
+            <ScannerResult result={DEMO.used} id="result-used" hidden>
+              <Button variant="solid" size="lg" data-scan-again>Next ticket</Button>
+              <Button variant="ghost" size="lg" data-confirm-open="undo-confirm">
+                Let them in anyway
+              </Button>
+            </ScannerResult>
+            <ScannerResult result={DEMO.invalid} id="result-invalid" hidden>
+              <Button variant="solid" size="lg" data-scan-again>Next ticket</Button>
+              <Button variant="ghost" size="lg" data-goto-lookup>Look them up by name</Button>
+            </ScannerResult>
+          </div>
+        </section>
+
+        <!-- LOOK UP ------------------------------------------------------- -->
+        <section class="mode" data-mode="lookup" aria-label="Look up a customer" hidden>
+          <div class="lookup">
+            <h2 class="lookup-title">Find someone</h2>
+            <p class="lookup-copy">
+              Phone dead, email missing, QR will not scan. Search by name, email, order number or
+              ticket reference.
+            </p>
+
+            <div class="lookup-search">
+              <label class="visually-hidden" for="door-search">Search orders</label>
+              <input
+                id="door-search"
+                type="search"
+                inputmode="search"
+                autocomplete="off"
+                placeholder="Name, email or AMP-26-..."
+                data-lookup-input
+              />
+              <AdminIcon name="search" size={20} class="lookup-icon" />
+            </div>
+
+            <p class="lookup-count" data-lookup-count aria-live="polite">
+              {sampleOrders.length} orders on this gig
+            </p>
+
+            <ul class="lookup-list" data-lookup-list>
+              {sampleOrders.slice(0, 60).map((row) => (
+                <li
+                  class="lookup-row"
+                  data-name={row.order.customerName.toLowerCase()}
+                  data-email={row.order.customerEmail.toLowerCase()}
+                  data-ref={row.order.reference.toLowerCase()}
+                >
+                  <div class="lookup-who">
+                    <span class="lookup-name">{row.order.customerName}</span>
+                    <span class="lookup-email">{row.order.customerEmail}</span>
+                    <span class="lookup-ref mono">{row.order.reference}</span>
+                  </div>
+                  <div class="lookup-side">
+                    <span class="lookup-tickets">
+                      {row.ticketCount} &times; {row.order.items[0]?.ticketTypeName ?? 'Ticket'}
+                    </span>
+                    <span class="lookup-in">
+                      {row.checkedInCount > 0 ? `${row.checkedInCount} in` : 'Not arrived'}
+                    </span>
+                  </div>
+                  <Button variant="volt" size="md" data-admit>Admit</Button>
+                </li>
+              ))}
+            </ul>
+
+            <p class="lookup-none" data-lookup-none hidden>
+              Nobody matches that. Try just the surname, or the first part of the email.
+            </p>
+
+            <ScaffoldNote slice="AMPED-09C">
+              Filtering here is client-side over the orders for this gig. In V1 this is a search
+              endpoint behind Cloudflare Access, and Admit calls the same atomic check-in used by
+              the scanner.
+            </ScaffoldNote>
+          </div>
+        </section>
+
+        <!-- GUEST LIST ---------------------------------------------------- -->
+        <section class="mode" data-mode="guests" aria-label="Guest list" hidden>
+          <div class="lookup">
+            <h2 class="lookup-title">Guest list</h2>
+            <p class="lookup-copy">
+              {guestList.length} {guestList.length === 1 ? 'place' : 'places'} on the list. Guests
+              are ordinary tickets, so they scan and check in exactly like everybody else.
+            </p>
+
+            {guestList.length > 0 ? (
+              <ul class="lookup-list">
+                {guestList.map((ticket) => (
+                  <li class="lookup-row">
+                    <div class="lookup-who">
+                      <span class="lookup-name">{ticket.attendeeName ?? 'Guest'}</span>
+                      <span class="lookup-ref mono">{ticket.reference}</span>
+                    </div>
+                    <div class="lookup-side">
+                      <span class="lookup-in">
+                        {ticket.status === 'checked_in' && ticket.checkedInAt
+                          ? `In at ${formatTime(ticket.checkedInAt)}`
+                          : 'Not arrived'}
+                      </span>
+                    </div>
+                    <Button
+                      variant={ticket.status === 'checked_in' ? 'ghost' : 'volt'}
+                      size="md"
+                      inert={ticket.status === 'checked_in'}
+                    >
+                      {ticket.status === 'checked_in' ? 'In' : 'Admit'}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState
+                variant="quiet"
+                title="Nobody on the guest list"
+                body="Guest places are added on the Tickets step when you set the gig up."
+              />
+            )}
+          </div>
+        </section>
+      </div>
+
+      <!-- Mode switcher ---------------------------------------------------- -->
+      <nav class="door-tabs" aria-label="Door mode">
+        <button type="button" data-mode-tab="scan" aria-current="page">
+          <AdminIcon name="scan" size={22} />
+          <span>Scan</span>
+        </button>
+        <button type="button" data-mode-tab="lookup">
+          <AdminIcon name="search" size={22} />
+          <span>Look up</span>
+        </button>
+        <button type="button" data-mode-tab="guests">
+          <AdminIcon name="artist" size={22} />
+          <span>Guests</span>
+        </button>
+      </nav>
+    </DoorLayout>
+  )
+}
+
+<script>
+  const screen = document.querySelector<HTMLElement>('.door-screen');
+  const modes = Array.from(document.querySelectorAll<HTMLElement>('[data-mode]'));
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-mode-tab]'));
+  const viewfinder = document.querySelector<HTMLElement>('[data-viewfinder]');
+  const results = Array.from(document.querySelectorAll<HTMLElement>('[id^="result-"]'));
+  const admitted = document.querySelector<HTMLOutputElement>('[data-admitted]');
+
+  function showMode(name: string) {
+    modes.forEach((mode) => {
+      mode.hidden = mode.dataset.mode !== name;
+    });
+    tabs.forEach((tab) => {
+      if (tab.dataset.modeTab === name) tab.setAttribute('aria-current', 'page');
+      else tab.removeAttribute('aria-current');
+    });
+    screen?.scrollTo({ top: 0 });
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => showMode(tab.dataset.modeTab ?? 'scan'));
+  });
+
+  function showResult(kind: string) {
+    if (viewfinder) viewfinder.hidden = true;
+    results.forEach((result) => {
+      result.hidden = result.id !== `result-${kind}`;
+    });
+    // A real admission bumps the counter. Kept here so the demonstration
+    // behaves like the finished thing rather than being a static picture.
+    if (kind === 'valid' && admitted) {
+      admitted.textContent = String(Number(admitted.textContent ?? '0') + 1);
+    }
+    if (navigator.vibrate) navigator.vibrate(kind === 'valid' ? 40 : [30, 60, 30]);
+  }
+
+  function resetScanner() {
+    if (viewfinder) viewfinder.hidden = false;
+    results.forEach((result) => {
+      result.hidden = true;
+    });
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('[data-demo]').forEach((button) => {
+    button.addEventListener('click', () => showResult(button.dataset.demo ?? 'valid'));
+  });
+
+  document.querySelectorAll<HTMLElement>('[data-scan-again]').forEach((button) => {
+    button.addEventListener('click', resetScanner);
+  });
+
+  document.querySelectorAll<HTMLElement>('[data-goto-lookup]').forEach((button) => {
+    button.addEventListener('click', () => {
+      resetScanner();
+      showMode('lookup');
+      document.querySelector<HTMLInputElement>('[data-lookup-input]')?.focus();
+    });
+  });
+
+  document.querySelector<HTMLElement>('[data-start-scan]')?.addEventListener('click', () => {
+    window.alert(
+      'Scaffold only (AMPED-01).\n\nIn V1 this asks for camera permission and starts decoding QR codes. Use the demonstration buttons to see each result state.',
+    );
+  });
+
+  // Manual lookup filtering.
+  const input = document.querySelector<HTMLInputElement>('[data-lookup-input]');
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('.lookup-row[data-name]'));
+  const countEl = document.querySelector<HTMLElement>('[data-lookup-count]');
+  const noneEl = document.querySelector<HTMLElement>('[data-lookup-none]');
+
+  input?.addEventListener('input', () => {
+    const query = input.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach((row) => {
+      const match =
+        query.length === 0 ||
+        (row.dataset.name ?? '').includes(query) ||
+        (row.dataset.email ?? '').includes(query) ||
+        (row.dataset.ref ?? '').includes(query);
+      row.hidden = !match;
+      if (match) shown += 1;
+    });
+    if (countEl) {
+      countEl.textContent = query
+        ? `${shown} ${shown === 1 ? 'match' : 'matches'}`
+        : `${rows.length} orders on this gig`;
+    }
+    if (noneEl) noneEl.hidden = shown !== 0;
+  });
+
+  document.querySelectorAll<HTMLElement>('[data-admit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      window.alert('Scaffold only (AMPED-01). AMPED-09C connects this to the atomic check-in.');
+    });
+  });
+</script>
+
+<style>
+  .door-pad {
+    padding: var(--s-6) var(--s-4);
+  }
+
+  .counter {
+    display: flex;
+    align-items: baseline;
+    gap: 0.2em;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .counter-in {
+    font-weight: 900;
+    font-size: var(--step-2);
+    color: var(--volt);
+    line-height: 1;
+  }
+
+  .counter-of {
+    font-size: var(--step--1);
+    color: var(--text-faint);
+  }
+
+  .door-screen {
+    height: 100%;
+  }
+
+  .mode {
+    min-height: 100%;
+  }
+
+  .mode[hidden] {
+    display: none;
+  }
+
+  /* --- Viewfinder ---------------------------------------------------------- */
+
+  .viewfinder {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: var(--s-4);
+    min-height: 100%;
+    padding: var(--s-5) var(--s-4) 7rem;
+    text-align: center;
+  }
+
+  .viewfinder[hidden] {
+    display: none;
+  }
+
+  .vf-frame {
+    position: relative;
+    width: min(16rem, 62vw);
+    aspect-ratio: 1;
+    border-radius: var(--r-lg);
+    background:
+      radial-gradient(70% 60% at 50% 40%, rgb(59 224 255 / 10%), transparent 70%),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 3%) 0 2px, transparent 2px 6px),
+      var(--ink-inset);
+    overflow: hidden;
+  }
+
+  /* Four corner brackets, the universal "point the camera here" signal. */
+  .vf-frame span {
+    position: absolute;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 3px solid var(--stage-cyan);
+  }
+
+  .vf-frame span:nth-child(1) {
+    top: 0;
+    left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-top-left-radius: var(--r);
+  }
+
+  .vf-frame span:nth-child(2) {
+    top: 0;
+    right: 0;
+    border-left: 0;
+    border-bottom: 0;
+    border-top-right-radius: var(--r);
+  }
+
+  .vf-frame span:nth-child(3) {
+    bottom: 0;
+    left: 0;
+    border-right: 0;
+    border-top: 0;
+    border-bottom-left-radius: var(--r);
+  }
+
+  .vf-frame span:nth-child(4) {
+    bottom: 0;
+    right: 0;
+    border-left: 0;
+    border-top: 0;
+    border-bottom-right-radius: var(--r);
+  }
+
+  .vf-line {
+    position: absolute;
+    inset-inline: 8%;
+    top: 12%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--stage-cyan), transparent);
+    box-shadow: 0 0 18px rgb(59 224 255 / 70%);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .vf-line {
+      animation: sweep 2.6s var(--ease) infinite alternate;
+    }
+  }
+
+  @keyframes sweep {
+    to {
+      top: 84%;
+    }
+  }
+
+  .vf-copy {
+    font-size: var(--step-0);
+    color: var(--text-muted);
+    max-width: 26ch;
+  }
+
+  .vf-demo {
+    display: grid;
+    gap: var(--s-2);
+    width: 100%;
+    max-width: 22rem;
+  }
+
+  .vf-demo button {
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-4);
+    border: 1px dashed var(--hairline-strong);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-faint);
+    font-size: var(--step--2);
+    cursor: pointer;
+  }
+
+  .vf-demo button:hover {
+    color: var(--stage-cyan);
+    border-color: var(--stage-cyan);
+  }
+
+  .results {
+    min-height: 100%;
+  }
+
+  .results :global(.result) {
+    padding-bottom: 7rem;
+  }
+
+  /* --- Lookup and guests --------------------------------------------------- */
+
+  .lookup {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-4) var(--s-4) 7rem;
+    max-width: 36rem;
+    margin-inline: auto;
+  }
+
+  .lookup-title {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 80%;
+    font-size: var(--step-2);
+    text-transform: uppercase;
+  }
+
+  .lookup-copy {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .lookup-search {
+    position: relative;
+  }
+
+  .lookup-search input {
+    width: 100%;
+    min-height: 3.25rem;
+    padding: var(--s-3) var(--s-3) var(--s-3) 3rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r);
+    background: var(--ink-inset);
+    color: var(--text);
+    font-size: var(--step-1);
+  }
+
+  .lookup-search input:focus-visible {
+    border-color: var(--stage-cyan);
+  }
+
+  .lookup-icon {
+    position: absolute;
+    left: var(--s-3);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    pointer-events: none;
+  }
+
+  .lookup-count {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .lookup-list {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .lookup-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--s-2) var(--s-3);
+    align-items: center;
+    padding: var(--s-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .lookup-row[hidden] {
+    display: none;
+  }
+
+  .lookup-who {
+    display: grid;
+    gap: 0.1em;
+    min-width: 0;
+  }
+
+  .lookup-name {
+    font-weight: 700;
+    font-size: var(--step-0);
+  }
+
+  .lookup-email,
+  .lookup-ref {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .lookup-side {
+    display: grid;
+    gap: 0.1em;
+    text-align: right;
+    font-size: var(--step--2);
+  }
+
+  .lookup-tickets {
+    color: var(--text-muted);
+  }
+
+  .lookup-in {
+    color: var(--go);
+  }
+
+  .lookup-row :global(.btn) {
+    grid-column: 1 / -1;
+  }
+
+  @media (min-width: 30rem) {
+    .lookup-row {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+
+    .lookup-row :global(.btn) {
+      grid-column: auto;
+    }
+  }
+
+  .lookup-none {
+    padding: var(--s-5);
+    border: 1px dashed var(--hairline-strong);
+    border-radius: var(--r);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--step--1);
+  }
+
+  .lookup-none[hidden] {
+    display: none;
+  }
+
+  /* --- Bottom tabs --------------------------------------------------------- */
+
+  .door-tabs {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: var(--z-sticky);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    background: rgb(8 8 11 / 96%);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--hairline-strong);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .door-tabs button {
+    display: grid;
+    justify-items: center;
+    gap: 0.2em;
+    min-height: 4rem;
+    padding: var(--s-2);
+    background: transparent;
+    border: 0;
+    border-top: 3px solid transparent;
+    color: var(--text-faint);
+    font-family: var(--font-display);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .door-tabs button[aria-current='page'] {
+    color: var(--stage-cyan);
+    border-top-color: var(--stage-cyan);
+    background: color-mix(in srgb, var(--stage-cyan) 8%, transparent);
+  }
+</style>

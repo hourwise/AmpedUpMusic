@@ -1,0 +1,251 @@
+---
+/**
+ * /tickets - availability across every announced gig, in one table.
+ *
+ * This page exists for the person who already knows they want to come to
+ * something and is deciding which. It is a price and availability comparison,
+ * not a second gig listing, so it is denser than /gigs and leads with money.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import AvailabilityBadge from '@/components/events/AvailabilityBadge.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+import { machineDate } from '@/lib/dates.ts';
+import { AGE_RESTRICTION_SHORT } from '@/lib/text.ts';
+
+const services = getServices();
+const events = await services.events.listOnSale();
+
+const onSaleCount = events.filter((e) => e.onSale).length;
+---
+
+<SiteLayout
+  title="Tickets"
+  description="Ticket prices and availability for every upcoming Amped Up Music Promotions gig. No booking fees."
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Tickets', href: '/tickets' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="On sale"
+    title="Tickets"
+    intro="Everything currently on sale, with prices and what is left. We do not add booking fees - the price on this page is the price you pay."
+    trail={[{ label: 'Home', href: '/' }]}
+  >
+    <p class="tickets-count">
+      {onSaleCount} of {events.length} gigs on sale now
+    </p>
+  </PageHeader>
+
+  <div class="container-wide tickets-page">
+    {
+      events.length === 0 ? (
+        <EmptyState
+          title="Nothing on sale at the moment"
+          body="New gigs go on sale most weeks. Join the gig alerts list and you will hear first."
+          actionHref="/gigs"
+          actionLabel="See the diary"
+        />
+      ) : (
+        <ul class="tickets-rows">
+          {events.map((event) => (
+            <li class="trow">
+              <div class="trow-when">
+                <time datetime={machineDate(event.startsAt)} class="trow-date">
+                  {event.dayLabel}
+                </time>
+                <span class="trow-doors">Doors {event.doorsLabel}</span>
+              </div>
+
+              <div class="trow-what">
+                <h2 class="trow-title display display-sm">
+                  <a href={event.href}>{event.title}</a>
+                </h2>
+                <p class="trow-venue">
+                  {event.venue.name}, {event.venue.city}
+                  <span class="trow-age">{AGE_RESTRICTION_SHORT[event.ageRestriction]}</span>
+                </p>
+                <ul class="trow-types">
+                  {event.ticketTypes.map((ticket) => (
+                    <li class:list={['ttype', !ticket.purchasable && 'ttype-out']}>
+                      <span class="ttype-name">{ticket.name}</span>
+                      <span class="ttype-price">{ticket.priceLabel}</span>
+                      <AvailabilityBadge state={ticket.availability} size="sm" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div class="trow-action">
+                <AvailabilityBadge state={event.availability} long />
+                <Button
+                  href={event.href}
+                  variant={event.onSale ? 'volt' : 'outline'}
+                  size="md"
+                  aria-label={`${event.onSale ? 'Buy tickets for' : 'See'} ${event.title}`}
+                >
+                  {event.onSale ? 'Buy' : 'Details'}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    <div class="tickets-terms">
+      <Callout tone="info" label="How tickets work" title="What happens after you buy">
+        <p>
+          Tickets arrive by email within a couple of minutes, each with its own QR code. Bring your
+          phone or a printout. If the email does not turn up, we can find you on the door by name,
+          email or order number - that is what the manual lookup on our door scanner is for.
+        </p>
+        <p>
+          Read the <a href="/ticket-terms">ticket terms</a> for refunds, cancellations and
+          postponements.
+        </p>
+      </Callout>
+    </div>
+  </div>
+</SiteLayout>
+
+<style>
+  .tickets-count {
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .tickets-page {
+    padding-bottom: var(--s-9);
+    display: grid;
+    gap: var(--s-6);
+  }
+
+  .tickets-rows {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .trow {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-lg);
+    background: var(--ink-raised);
+    transition: border-color var(--fast) var(--ease);
+  }
+
+  .trow:hover {
+    border-color: var(--hairline-strong);
+  }
+
+  .trow-when {
+    display: grid;
+    gap: 0.15em;
+    align-content: start;
+  }
+
+  .trow-date {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-stretch: 80%;
+    text-transform: uppercase;
+    font-size: var(--step-1);
+    color: var(--volt);
+    line-height: 1;
+  }
+
+  .trow-doors {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .trow-what {
+    display: grid;
+    gap: var(--s-2);
+    min-width: 0;
+  }
+
+  .trow-title a {
+    text-decoration: none;
+  }
+
+  .trow-title a:hover {
+    color: var(--volt);
+  }
+
+  .trow-venue {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .trow-age {
+    color: var(--text-faint);
+  }
+
+  .trow-types {
+    display: grid;
+    gap: var(--s-1);
+    margin-top: var(--s-1);
+  }
+
+  .ttype {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-2) 0;
+    border-top: 1px solid var(--hairline);
+    font-size: var(--step--1);
+  }
+
+  .ttype-out {
+    opacity: 0.6;
+  }
+
+  .ttype-name {
+    flex: 1;
+    min-width: 8rem;
+  }
+
+  .ttype-price {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .trow-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    align-content: start;
+  }
+
+  @media (min-width: 56rem) {
+    .trow {
+      grid-template-columns: 10rem minmax(0, 1fr) auto;
+      align-items: start;
+      gap: var(--s-6);
+    }
+
+    .trow-action {
+      flex-direction: column;
+      align-items: flex-end;
+    }
+  }
+</style>

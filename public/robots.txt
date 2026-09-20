@@ -1,0 +1,7 @@
+# Amped Up Music Promotions
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/
+
+Sitemap: https://ampedupmusic.co.uk/sitemap.xml

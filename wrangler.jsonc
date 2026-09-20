@@ -1,0 +1,33 @@
+/**
+ * Amped Up Music Promotions — Cloudflare Workers configuration.
+ *
+ * AMPED-01 SCAFFOLD ONLY.
+ * No production resources exist yet. The D1 / R2 / KV bindings below are
+ * commented out deliberately: they are declared as documentation of the
+ * intended shape and must be created and wired up in their own slices
+ * (AMPED-02A for D1, AMPED-05A for R2). Do not uncomment them without also
+ * creating the resources and updating src/env.d.ts.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ampedup",
+  "main": "@astrojs/cloudflare/entrypoints/server",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "AMPED_ENV": "development"
+  }
+
+  // --- Reserved for later slices; DO NOT enable during AMPED-01 ---------------
+  // AMPED-02A: "d1_databases": [{ "binding": "DB", "database_name": "ampedup", "database_id": "<created-in-slice>" }],
+  // AMPED-05A: "r2_buckets":   [{ "binding": "MEDIA", "bucket_name": "ampedup-media" }],
+  // AMPED-06B: "kv_namespaces": [{ "binding": "RESERVATIONS", "id": "<created-in-slice>" }],
+  // AMPED-06B: "queues": { "producers": [{ "binding": "RESERVATION_SWEEP", "queue": "ampedup-reservation-sweep" }] }
+}

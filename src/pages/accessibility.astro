@@ -1,0 +1,147 @@
+---
+/**
+ * Accessibility information.
+ *
+ * Covers both meanings: getting into the building, and using this website.
+ * The venue information is read from the venue records so it can never drift
+ * out of step with what the event pages say.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Button from '@/components/ui/Button.astro';
+import { getServices } from '@/services/index.ts';
+import { SITE } from '@/lib/site.ts';
+
+const venues = await getServices().venues.list();
+---
+
+<SiteLayout
+  title="Accessibility"
+  description="Access at our venues and on this website: step-free routes, accessible viewing, personal assistant tickets and how to ask."
+>
+  <PageHeader
+    eyebrow="Access"
+    title="Accessibility"
+    intro="What each room can and cannot do, how to book an accessible viewing position, and how this website behaves."
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="container-wide access">
+    <div class="access-lead prose">
+      <p>
+        We would rather tell you something inconvenient than something vague. Each room below says
+        what it actually offers. If a venue cannot do something, it says so, and we will tell you
+        when the same bill is playing somewhere that can.
+      </p>
+
+      <h2>Accessible viewing and personal assistants</h2>
+      <p>
+        At the venues that have them, we hold accessible viewing positions for every Amped Up show.
+        They are not sold online - book a standard ticket and then email
+        <a href={`mailto:${SITE.ticketsEmail}`}>{SITE.ticketsEmail}</a> with your order reference,
+        and we will reserve one.
+      </p>
+      <p>
+        A personal assistant comes in free of charge. Tell us at the same time and we will add them
+        to the door list. You do not need to provide evidence or fill in a form.
+      </p>
+
+      <h2>On the door</h2>
+      <p>
+        If queueing is difficult, tell a member of staff at the front of the queue and we will bring
+        you in. If your phone has died or the QR code will not scan, we can find your order by name,
+        email address or order reference.
+      </p>
+    </div>
+
+    <section aria-labelledby="venues-heading" class="access-venues">
+      <h2 class="display display-md" id="venues-heading">Venue by venue</h2>
+      <ul class="access-list">
+        {
+          venues.map((venue) => (
+            <li class="access-venue surface">
+              <h3 class="display display-sm">{venue.name}</h3>
+              <p class="access-where">
+                {venue.city}, {venue.postcode}
+              </p>
+              <p class="access-info">{venue.accessibilityInfo ?? 'Access information to follow.'}</p>
+              {venue.mapUrl && (
+                <p class="access-map">
+                  <a href={venue.mapUrl} rel="noopener">Find it on a map</a>
+                </p>
+              )}
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    <section aria-labelledby="site-heading" class="prose">
+      <h2 id="site-heading">This website</h2>
+      <p>We have built this site to be usable without a mouse, without images and without JavaScript.</p>
+      <ul>
+        <li>Every interactive control can be reached and operated with a keyboard, and the focus outline is deliberately loud.</li>
+        <li>Text resizes with your browser settings; nothing is set in fixed pixels.</li>
+        <li>
+          Ticket availability is never communicated by colour alone - every state has its own
+          wording as well as its own colour.
+        </li>
+        <li>Animations are subtle and are switched off entirely if your system asks for reduced motion.</li>
+        <li>Every photograph carries a text description.</li>
+        <li>Contrast is tested against WCAG 2.2 AA at minimum.</li>
+      </ul>
+      <p>
+        If something on this site does not work for you, tell us and we will fix it. That is a
+        standing commitment, not a form of words.
+      </p>
+      <div class="access-actions">
+        <Button href="/contact" variant="volt" size="lg">Tell us about a problem</Button>
+      </div>
+    </section>
+  </div>
+</SiteLayout>
+
+<style>
+  .access {
+    display: grid;
+    gap: var(--s-8);
+    padding-bottom: var(--s-9);
+  }
+
+  .access-venues {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .access-list {
+    display: grid;
+    gap: var(--s-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  }
+
+  .access-venue {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-5);
+    align-content: start;
+  }
+
+  .access-where {
+    font-size: var(--step--1);
+    color: var(--volt);
+  }
+
+  .access-info {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .access-map a {
+    font-size: var(--step--2);
+    color: var(--text);
+  }
+
+  .access-actions {
+    margin-top: var(--s-5);
+  }
+</style>

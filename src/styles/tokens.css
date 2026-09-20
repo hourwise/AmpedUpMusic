@@ -1,0 +1,163 @@
+/*
+ * Amped Up Music Promotions - design tokens.
+ *
+ * VISUAL DIRECTION
+ * Contemporary independent promoter: near-black rooms, a hard stage-light
+ * accent, oversized condensed type and real poster imagery. Deliberately not
+ * a generic dark SaaS theme, and deliberately not distressed-metal grunge -
+ * no flames, no torn edges, no barbed typefaces.
+ *
+ * The accent is "Volt", an acid yellow-green. It was chosen because it is
+ * uncommon, it reads as a lighting rig rather than a brand guideline, and it
+ * carries 16:1 contrast against black text - so the primary Buy Tickets call
+ * to action is both the loudest thing on the page and the most legible.
+ *
+ * The site is dark in every mode by design. It is a gig listing, not a
+ * document, and Door Mode is used in a dark room at midnight. There is no
+ * light theme and `color-scheme: dark` is declared so that native controls,
+ * scrollbars and form widgets follow.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- Surfaces -------------------------------------------------------- */
+  --ink-void: #08080b;
+  --ink-base: #0e0e13;
+  --ink-raised: #16161d;
+  --ink-raised-2: #1e1e28;
+  --ink-inset: #050507;
+
+  --hairline: rgb(255 255 255 / 9%);
+  --hairline-strong: rgb(255 255 255 / 18%);
+
+  /* --- Text ------------------------------------------------------------ */
+  --text: #f5f5f7;
+  --text-muted: #a8a8b5;
+  --text-faint: #73737f;
+  --text-on-accent: #0a0a02;
+
+  /* --- Stage lighting -------------------------------------------------- */
+  --volt: #e8ff3a;
+  --volt-dim: #b9cc2e;
+  --stage-pink: #ff3b6b;
+  --stage-cyan: #3be0ff;
+  --stage-violet: #b04cff;
+  --ember: #ff8a1a;
+
+  /* --- Status ---------------------------------------------------------- */
+  --go: #3be07a;
+  --warn: #ffc93b;
+  --urgent: #ff8a1a;
+  --stop: #ff5468;
+  --muted-status: #8a8a96;
+
+  /* --- Typography ------------------------------------------------------ */
+  /*
+   * One family, two personalities. Archivo is a variable grotesque with a
+   * width axis, so the condensed poster headlines and the readable body copy
+   * come from the same file: one webfont request, no mismatched pairing.
+   */
+  --font-display: 'Archivo', 'Archivo Narrow', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  /* Fluid scale. Min sizes are tuned for a 360px phone, max for 1440px. */
+  --step--2: clamp(0.7rem, 0.68rem + 0.09vw, 0.76rem);
+  --step--1: clamp(0.81rem, 0.78rem + 0.13vw, 0.88rem);
+  --step-0: clamp(0.94rem, 0.91rem + 0.17vw, 1.05rem);
+  --step-1: clamp(1.13rem, 1.05rem + 0.38vw, 1.36rem);
+  --step-2: clamp(1.36rem, 1.2rem + 0.78vw, 1.9rem);
+  --step-3: clamp(1.7rem, 1.36rem + 1.6vw, 2.8rem);
+  --step-4: clamp(2.1rem, 1.42rem + 3.1vw, 4.1rem);
+  --step-5: clamp(2.7rem, 1.4rem + 5.8vw, 6.2rem);
+
+  --leading-tight: 0.94;
+  --leading-snug: 1.15;
+  --leading-normal: 1.55;
+  --leading-loose: 1.7;
+
+  --tracking-display: -0.015em;
+  --tracking-label: 0.14em;
+
+  /* --- Space (4px grid) ------------------------------------------------ */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+  --s-10: 8rem;
+
+  /* Section rhythm shrinks on phones so the page does not feel like a slog. */
+  --section-y: clamp(3rem, 2rem + 5vw, 6.5rem);
+  --gutter: clamp(1rem, 0.6rem + 2vw, 2.5rem);
+  --measure: 68ch;
+  --container: 76rem;
+  --container-wide: 92rem;
+
+  /* --- Shape ----------------------------------------------------------- */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+
+  /* --- Elevation and glow ---------------------------------------------- */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 60%);
+  --shadow: 0 10px 30px -12px rgb(0 0 0 / 80%);
+  --shadow-lg: 0 30px 70px -28px rgb(0 0 0 / 90%);
+  --glow-volt: 0 0 34px -6px rgb(232 255 58 / 45%);
+  --glow-pink: 0 0 34px -6px rgb(255 59 107 / 45%);
+  --glow-cyan: 0 0 34px -6px rgb(59 224 255 / 40%);
+
+  /* --- Motion ---------------------------------------------------------- */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fast: 120ms;
+  --normal: 220ms;
+  --slow: 420ms;
+
+  /* --- Layering -------------------------------------------------------- */
+  --z-grain: 1;
+  --z-sticky: 40;
+  --z-header: 50;
+  --z-drawer: 60;
+  --z-modal: 70;
+  --z-toast: 80;
+
+  --header-h: 4rem;
+}
+
+@media (min-width: 60rem) {
+  :root {
+    --header-h: 5rem;
+  }
+}
+
+/*
+ * Reduced motion is honoured globally rather than per-component. Every
+ * animation in this project is decorative; none of them carry meaning, so
+ * removing them removes nothing.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fast: 1ms;
+    --normal: 1ms;
+    --slow: 1ms;
+  }
+}
+
+/* Users who ask for more contrast get harder hairlines and brighter muted text. */
+@media (prefers-contrast: more) {
+  :root {
+    --hairline: rgb(255 255 255 / 28%);
+    --hairline-strong: rgb(255 255 255 / 45%);
+    --text-muted: #cdcdd6;
+    --text-faint: #a0a0ad;
+  }
+}

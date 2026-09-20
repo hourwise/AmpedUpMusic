@@ -1,0 +1,62 @@
+---
+/**
+ * The archive.
+ *
+ * Populated automatically: an event appears here once it has finished,
+ * without anybody marking it as past. See src/lib/dates.ts `hasFinished`.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+import { SITE } from '@/lib/site.ts';
+
+const services = getServices();
+const events = await services.events.listPast();
+const withPhotos = events.filter((e) => e.gallery.length > 0).length;
+---
+
+<SiteLayout
+  title="Past gigs"
+  description="Every Amped Up Music Promotions gig that has already happened, with photographs from the night."
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Past gigs', href: '/past-gigs' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Archive"
+    title="Past gigs"
+    intro={`Everything we have put on, newest first. ${withPhotos} of them have full galleries by ${SITE.photographyPartner.name}.`}
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="container-wide past-body">
+    {
+      events.length > 0 ? (
+        <div class="grid-cards">
+          {events.map((event, index) => (
+            <EventCard event={event} priority={index < 3} hideCta />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="The archive is empty"
+          body="Once a gig has happened it moves in here automatically, with the photographs."
+          actionHref="/gigs"
+          actionLabel="What is coming up"
+        />
+      )
+    }
+  </div>
+</SiteLayout>
+
+<style>
+  .past-body {
+    padding-bottom: var(--s-9);
+  }
+</style>

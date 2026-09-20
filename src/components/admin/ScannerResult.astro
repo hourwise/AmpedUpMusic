@@ -1,0 +1,214 @@
+---
+/**
+ * The scan result.
+ *
+ * Deliberately enormous. Door staff read this at arm's length, in the dark,
+ * while somebody talks to them. The outcome must be readable in under half a
+ * second and must not depend on colour alone, so each state has a distinct
+ * symbol, a distinct word and a distinct colour.
+ *
+ * The detail underneath answers the two questions that actually come up:
+ * "who is this?" and "how many more are on this order?" - because groups buy
+ * four tickets on one phone and expect to walk in together.
+ */
+import type { ScanResult } from '@/types/domain.ts';
+import { formatTime } from '@/lib/dates.ts';
+
+interface Props {
+  result: ScanResult;
+  /** Hidden until the scanner produces it. */
+  hidden?: boolean;
+  id?: string;
+}
+
+const { result, hidden = false, id } = Astro.props;
+
+const PRESENTATION: Record<ScanResult['outcome'], { tone: string; symbol: string; word: string }> = {
+  valid: { tone: 'valid', symbol: '✓', word: 'Valid' },
+  'already-used': { tone: 'used', symbol: '⚠', word: 'Already used' },
+  invalid: { tone: 'invalid', symbol: '✕', word: 'Not a ticket' },
+  'wrong-event': { tone: 'used', symbol: '⚠', word: 'Wrong gig' },
+  void: { tone: 'invalid', symbol: '✕', word: 'Refunded' },
+};
+
+const presentation = PRESENTATION[result.outcome];
+---
+
+<div
+  class:list={['result', `result-${presentation.tone}`]}
+  id={id}
+  hidden={hidden}
+  role="status"
+  aria-live="assertive"
+>
+  <p class="result-symbol" aria-hidden="true">{presentation.symbol}</p>
+  <p class="result-word">{presentation.word}</p>
+  <p class="result-message">{result.message}</p>
+
+  <dl class="result-detail">
+    {
+      result.order && (
+        <>
+          <div>
+            <dt>Name</dt>
+            <dd>{result.order.customerName}</dd>
+          </div>
+          <div>
+            <dt>Order</dt>
+            <dd class="mono">{result.order.reference}</dd>
+          </div>
+        </>
+      )
+    }
+    {
+      result.ticketTypeName && (
+        <div>
+          <dt>Ticket</dt>
+          <dd>{result.ticketTypeName}</dd>
+        </div>
+      )
+    }
+    {
+      result.ticket?.isGuestList && (
+        <div>
+          <dt>List</dt>
+          <dd>Guest list</dd>
+        </div>
+      )
+    }
+    {
+      result.previousCheckInAt && result.outcome === 'already-used' && (
+        <div>
+          <dt>Scanned at</dt>
+          <dd class="mono">{formatTime(result.previousCheckInAt)}</dd>
+        </div>
+      )
+    }
+  </dl>
+
+  {
+    result.outcome === 'valid' && result.remainingOnOrder !== undefined && (
+      <p class="result-remaining">
+        {result.remainingOnOrder > 0
+          ? `${result.remainingOnOrder} more admission${result.remainingOnOrder === 1 ? '' : 's'} on this order`
+          : 'Last one on this order'}
+      </p>
+    )
+  }
+
+  <div class="result-actions">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .result {
+    --result-accent: var(--go);
+
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: var(--s-2);
+    min-height: 100%;
+    padding: var(--s-5) var(--s-4);
+    text-align: center;
+    background: color-mix(in srgb, var(--result-accent) 16%, var(--ink-void));
+    border-top: 6px solid var(--result-accent);
+  }
+
+  .result[hidden] {
+    display: none;
+  }
+
+  .result-used {
+    --result-accent: var(--warn);
+  }
+
+  .result-invalid {
+    --result-accent: var(--stop);
+  }
+
+  .result-symbol {
+    font-size: clamp(4rem, 22vw, 8rem);
+    line-height: 1;
+    color: var(--result-accent);
+    font-weight: 700;
+  }
+
+  .result-word {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 78%;
+    font-size: clamp(2.2rem, 11vw, 4rem);
+    line-height: 1;
+    text-transform: uppercase;
+    color: var(--result-accent);
+    letter-spacing: -0.01em;
+  }
+
+  .result-message {
+    font-size: var(--step-0);
+    color: var(--text);
+    max-width: 24ch;
+  }
+
+  .result-detail {
+    display: grid;
+    gap: var(--s-2);
+    width: 100%;
+    max-width: 22rem;
+    margin-top: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    border-radius: var(--r);
+    background: rgb(0 0 0 / 35%);
+    border: 1px solid var(--hairline);
+    text-align: left;
+  }
+
+  .result-detail div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .result-detail dt {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .result-detail dd {
+    margin: 0;
+    font-weight: 700;
+    font-size: var(--step-0);
+    text-align: right;
+  }
+
+  .result-detail:empty {
+    display: none;
+  }
+
+  .result-remaining {
+    margin-top: var(--s-2);
+    padding: var(--s-2) var(--s-4);
+    border-radius: var(--r-pill);
+    background: var(--result-accent);
+    color: var(--text-on-accent);
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-0);
+    text-transform: uppercase;
+  }
+
+  .result-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    justify-content: center;
+    margin-top: var(--s-5);
+    width: 100%;
+  }
+</style>

@@ -1,0 +1,119 @@
+---
+/**
+ * The admin table shell.
+ *
+ * Provides the caption, scroll container and shared styling; the calling page
+ * supplies <thead>/<tbody> through the slot. Astro components cannot be
+ * generic over a row type, and a config-driven "column definition" API would
+ * be more machinery than nine tables justify - so the contract is CSS plus a
+ * documented markup shape rather than a props schema.
+ *
+ * On a phone the table scrolls horizontally inside its own region, which is
+ * marked tabindex="0" and labelled so keyboard and screen reader users can
+ * actually reach the overflow.
+ */
+interface Props {
+  /** Describes the table for assistive technology. Required. */
+  caption: string;
+  /** Hides the caption visually. It is still announced. */
+  hideCaption?: boolean;
+  class?: string;
+}
+
+const { caption, hideCaption = true, class: className = '' } = Astro.props;
+---
+
+<div class:list={['table-wrap', className]} role="region" tabindex="0" aria-label={caption}>
+  <table class="table">
+    <caption class:list={[hideCaption && 'visually-hidden']}>{caption}</caption>
+    <slot />
+  </table>
+</div>
+
+<style>
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .table-wrap:focus-visible {
+    outline: 3px solid var(--volt);
+    outline-offset: 2px;
+  }
+
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--step--1);
+    min-width: 34rem;
+  }
+
+  .table caption {
+    text-align: left;
+    padding: var(--s-3) var(--s-4) 0;
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .table :global(th) {
+    text-align: left;
+    padding: var(--s-3) var(--s-4);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border-bottom: 1px solid var(--hairline);
+    white-space: nowrap;
+    background: rgb(255 255 255 / 2%);
+  }
+
+  .table :global(td) {
+    padding: var(--s-3) var(--s-4);
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: middle;
+  }
+
+  .table :global(tbody tr:last-child td) {
+    border-bottom: 0;
+  }
+
+  .table :global(tbody tr:hover) {
+    background: rgb(255 255 255 / 3%);
+  }
+
+  .table :global(a) {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .table :global(a:hover) {
+    color: var(--volt);
+  }
+
+  .table :global(.num) {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .table :global(.mono) {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
+
+  .table :global(.dim) {
+    color: var(--text-faint);
+  }
+
+  .table :global(.row-actions) {
+    display: flex;
+    gap: var(--s-2);
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+</style>

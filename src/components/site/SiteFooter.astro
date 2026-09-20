@@ -1,0 +1,226 @@
+---
+/**
+ * Site footer: navigation, mailing list, photography credit, legal.
+ *
+ * The mailing list form posts nowhere during AMPED-01 - it is marked with
+ * data-mock so the scaffold cannot be mistaken for a working signup, and
+ * AMPED-10B replaces it with a real endpoint plus Turnstile.
+ */
+import Wordmark from './Wordmark.astro';
+import Button from '@/components/ui/Button.astro';
+import { FOOTER_LEGAL_NAV, PUBLIC_NAV, SITE } from '@/lib/site.ts';
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container-wide">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <Wordmark />
+        <p class="footer-blurb">
+          Independent live music promotion across {SITE.region}. We put on the shows, print the
+          posters, sell the tickets and stand on the door.
+        </p>
+        <ul class="footer-social">
+          <li><a href={SITE.social.instagram} rel="me noopener">Instagram</a></li>
+          <li><a href={SITE.social.tiktok} rel="me noopener">TikTok</a></li>
+          <li><a href={SITE.social.facebook} rel="me noopener">Facebook</a></li>
+          <li><a href={SITE.social.youtube} rel="me noopener">YouTube</a></li>
+        </ul>
+      </div>
+
+      <nav class="footer-nav" aria-label="Footer">
+        <h2 class="eyebrow">Pages</h2>
+        <ul>
+          {PUBLIC_NAV.map((item) => <li><a href={item.href}>{item.label}</a></li>)}
+        </ul>
+      </nav>
+
+      <div class="footer-signup">
+        <h2 class="eyebrow">Gig alerts</h2>
+        <p class="footer-signup-copy">
+          One email when a new gig goes on sale. Nothing else, ever, and one click to stop.
+        </p>
+        <form class="signup-form" data-mock="AMPED-10B mailing list capture">
+          <label class="visually-hidden" for="footer-email">Email address</label>
+          <input
+            id="footer-email"
+            type="email"
+            name="email"
+            inputmode="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            required
+          />
+          <Button type="submit" variant="volt" size="md">Join</Button>
+        </form>
+        <p class="footer-consent">
+          By joining you agree to our <a href="/privacy">privacy notice</a>. We never sell your
+          details.
+        </p>
+      </div>
+    </div>
+
+    <div class="footer-photography">
+      <p>
+        Live photography by
+        <a href={SITE.photographyPartner.url} rel="noopener">{SITE.photographyPartner.name}</a>.
+        {SITE.photographyPartner.blurb}
+      </p>
+    </div>
+
+    <div class="footer-bottom">
+      <p class="footer-legal-line">
+        &copy; {year} {SITE.name}. Registered in England.
+      </p>
+      <ul class="footer-legal">
+        {FOOTER_LEGAL_NAV.map((item) => <li><a href={item.href}>{item.label}</a></li>)}
+        <li><a href="/contact">Contact</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    position: relative;
+    z-index: 1;
+    margin-top: var(--s-9);
+    padding-block: var(--s-8) var(--s-6);
+    border-top: 1px solid var(--hairline);
+    background:
+      linear-gradient(180deg, transparent, rgb(0 0 0 / 45%)),
+      radial-gradient(50rem 24rem at 15% 0%, rgb(232 255 58 / 5%), transparent 65%);
+  }
+
+  .footer-top {
+    display: grid;
+    gap: var(--s-7);
+  }
+
+  @media (min-width: 52rem) {
+    .footer-top {
+      grid-template-columns: 1.4fr 0.8fr 1.2fr;
+      gap: var(--s-6);
+    }
+  }
+
+  .footer-brand {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  .footer-blurb {
+    max-width: 34ch;
+    color: var(--text-muted);
+    font-size: var(--step--1);
+  }
+
+  .footer-social {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+    font-size: var(--step--1);
+  }
+
+  .footer-social a,
+  .footer-nav a,
+  .footer-legal a {
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+
+  .footer-social a:hover,
+  .footer-nav a:hover,
+  .footer-legal a:hover {
+    color: var(--volt);
+  }
+
+  .footer-nav ul {
+    display: grid;
+    gap: var(--s-2);
+    margin-top: var(--s-3);
+    font-size: var(--step--1);
+  }
+
+  .footer-signup {
+    display: grid;
+    gap: var(--s-3);
+    align-content: start;
+  }
+
+  .footer-signup-copy {
+    color: var(--text-muted);
+    font-size: var(--step--1);
+    max-width: 38ch;
+  }
+
+  .signup-form {
+    display: flex;
+    gap: var(--s-2);
+    flex-wrap: wrap;
+  }
+
+  .signup-form input {
+    flex: 1 1 12rem;
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-4);
+    background: var(--ink-inset);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    color: var(--text);
+  }
+
+  .signup-form input::placeholder {
+    color: var(--text-faint);
+  }
+
+  .signup-form input:focus-visible {
+    border-color: var(--volt);
+  }
+
+  .footer-consent {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    max-width: 40ch;
+  }
+
+  .footer-consent a {
+    color: var(--text-muted);
+  }
+
+  .footer-photography {
+    margin-top: var(--s-7);
+    padding: var(--s-4) var(--s-5);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: rgb(255 255 255 / 2.5%);
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .footer-photography a {
+    color: var(--volt);
+  }
+
+  .footer-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3) var(--s-5);
+    align-items: center;
+    justify-content: space-between;
+    margin-top: var(--s-6);
+    padding-top: var(--s-5);
+    border-top: 1px solid var(--hairline);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .footer-legal {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-4);
+  }
+</style>

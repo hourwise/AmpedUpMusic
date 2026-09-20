@@ -1,0 +1,50 @@
+---
+/**
+ * Event and order status, rendered consistently across every admin table.
+ *
+ * Draft is deliberately the loudest non-error state: the single most common
+ * operator mistake in a system like this is believing something is live when
+ * it is still a draft.
+ */
+import Badge from '@/components/ui/Badge.astro';
+import { EVENT_STATUS_LABEL, ORDER_STATUS_LABEL } from '@/lib/text.ts';
+import type { EventStatus, OrderStatus } from '@/types/domain.ts';
+
+type Tone = 'go' | 'warn' | 'urgent' | 'stop' | 'muted' | 'volt' | 'neutral';
+
+interface Props {
+  kind: 'event' | 'order';
+  status: EventStatus | OrderStatus;
+  size?: 'sm' | 'md';
+}
+
+const { kind, status, size = 'sm' } = Astro.props;
+
+const EVENT_TONE: Record<EventStatus, Tone> = {
+  draft: 'warn',
+  published: 'go',
+  postponed: 'urgent',
+  cancelled: 'stop',
+  completed: 'neutral',
+  archived: 'muted',
+};
+
+const ORDER_TONE: Record<OrderStatus, Tone> = {
+  pending: 'muted',
+  awaiting_payment: 'warn',
+  paid: 'go',
+  cancelled: 'muted',
+  expired: 'muted',
+  refunded: 'urgent',
+  partially_refunded: 'urgent',
+};
+
+const label =
+  kind === 'event'
+    ? EVENT_STATUS_LABEL[status as EventStatus]
+    : ORDER_STATUS_LABEL[status as OrderStatus];
+
+const tone = kind === 'event' ? EVENT_TONE[status as EventStatus] : ORDER_TONE[status as OrderStatus];
+---
+
+<Badge tone={tone} size={size} dot>{label}</Badge>

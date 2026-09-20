@@ -1,0 +1,128 @@
+---
+/**
+ * Privacy notice.
+ *
+ * Draft wording that describes what the system genuinely does - which is a
+ * short list, because the architecture deliberately stores very little. Must
+ * be reviewed before launch (AMPED-11).
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Callout from '@/components/ui/Callout.astro';
+import { SITE } from '@/lib/site.ts';
+
+export const prerender = true;
+---
+
+<SiteLayout
+  title="Privacy"
+  description="What Amped Up Music Promotions does with your data. Short version: as little as possible."
+>
+  <PageHeader
+    eyebrow="Your data"
+    title="Privacy"
+    intro="Short version: we store your name and email so we can sell you a ticket and let you in. We never see your card details and we do not sell anything to anyone."
+    trail={[{ label: 'Home', href: '/' }]}
+    wide={false}
+  />
+
+  <div class="container privacy">
+    <Callout tone="warn" label="Draft" title="Placeholder wording">
+      <p>This notice describes the intended system and must be reviewed before launch.</p>
+    </Callout>
+
+    <div class="prose">
+      <h2>Who we are</h2>
+      <p>
+        {SITE.name} is the data controller. Contact us at
+        <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.
+      </p>
+
+      <h2>What we collect, and why</h2>
+      <h3>When you buy a ticket</h3>
+      <ul>
+        <li>Your name and email address, so we can send you your tickets and find you on the door.</li>
+        <li>Your phone number, if you give us one, only so we can reach you if a gig changes.</li>
+        <li>What you bought, when, and for how much.</li>
+        <li>
+          A payment reference from our payment provider. We never receive or store your card number.
+        </li>
+      </ul>
+      <p>Legal basis: performance of a contract - we cannot sell you a ticket without this.</p>
+
+      <h3>When you join the gig alerts list</h3>
+      <ul>
+        <li>Your email address, and a record of when and where you consented.</li>
+      </ul>
+      <p>
+        Legal basis: consent. Every email has an unsubscribe link, and unsubscribing takes one
+        click and takes effect immediately.
+      </p>
+
+      <h3>When you contact us</h3>
+      <ul>
+        <li>Whatever you put in the form, so we can reply.</li>
+      </ul>
+      <p>
+        Forms are protected by Cloudflare Turnstile, which checks that you are not a bot. It does
+        not track you across sites.
+      </p>
+
+      <h3>When you scan in at a gig</h3>
+      <ul>
+        <li>That your ticket was admitted, and when.</li>
+      </ul>
+      <p>
+        Your QR code is a random admission credential. It contains no personal information at all,
+        so a photograph of a ticket tells a stranger nothing about its owner.
+      </p>
+
+      <h2>What we do not do</h2>
+      <ul>
+        <li>We do not sell, rent or share your details with anyone for marketing.</li>
+        <li>We do not store card numbers. Payment is handled entirely by our payment provider.</li>
+        <li>We do not run advertising or behavioural tracking on this site.</li>
+      </ul>
+
+      <h2>Who processes data for us</h2>
+      <ul>
+        <li>Cloudflare - hosting, database, file storage and bot protection.</li>
+        <li>Our payment provider - taking the payment and confirming it.</li>
+        <li>Our email provider - sending your tickets and, if you asked for them, gig alerts.</li>
+      </ul>
+
+      <h2>How long we keep it</h2>
+      <ul>
+        <li>Order and ticket records: six years, because we have to for accounting.</li>
+        <li>Mailing list entries: until you unsubscribe, and then a suppression record so we do not email you again by mistake.</li>
+        <li>Enquiries: two years.</li>
+      </ul>
+
+      <h2>Your rights</h2>
+      <p>
+        You can ask us for a copy of what we hold, ask us to correct it, ask us to delete it where
+        we are not required to keep it, and object to marketing at any time. Email
+        <a href={`mailto:${SITE.email}`}>{SITE.email}</a> and we will deal with it within a month.
+      </p>
+      <p>
+        If you are not happy with how we have handled it you can complain to the Information
+        Commissioner Office (ICO).
+      </p>
+
+      <h2>Cookies</h2>
+      <p>
+        This site sets no advertising or analytics cookies. Strictly necessary cookies may be used
+        to keep a checkout session together and to operate bot protection. Because we set no
+        non-essential cookies, there is no cookie banner.
+      </p>
+    </div>
+  </div>
+</SiteLayout>
+
+<style>
+  .privacy {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-9);
+  }
+</style>

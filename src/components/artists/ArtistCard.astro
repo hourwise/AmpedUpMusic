@@ -1,0 +1,80 @@
+---
+/** Artist card for the directory and the "also played" rows. */
+import PosterImage from '@/components/events/PosterImage.astro';
+import type { Artist } from '@/types/domain.ts';
+
+interface Props {
+  artist: Artist;
+  imageUrl?: string;
+  /** e.g. "Playing 14 Nov" */
+  note?: string;
+}
+
+const { artist, imageUrl, note } = Astro.props;
+---
+
+<article class="artist-card">
+  <a class="artist-link" href={`/artists/${artist.slug}`}>
+    <PosterImage src={imageUrl} alt="" title={artist.name} ratio="square" class="artist-image" />
+    <div class="artist-body">
+      {artist.genre && <p class="artist-genre eyebrow">{artist.genre}</p>}
+      <h3 class="artist-name display display-sm">{artist.name}</h3>
+      {artist.tagline && <p class="artist-tagline">{artist.tagline}</p>}
+      <p class="artist-foot">
+        {artist.basedIn && <span class="artist-base">{artist.basedIn}</span>}
+        {note && <span class="artist-note">{note}</span>}
+      </p>
+    </div>
+  </a>
+</article>
+
+<style>
+  .artist-card {
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--ink-raised);
+    transition: border-color var(--normal) var(--ease), transform var(--normal) var(--ease);
+  }
+
+  .artist-card:hover {
+    border-color: var(--hairline-strong);
+    transform: translateY(-3px);
+  }
+
+  .artist-link {
+    display: block;
+    text-decoration: none;
+  }
+
+  .artist-body {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-4);
+  }
+
+  .artist-name {
+    font-size: var(--step-1);
+  }
+
+  .artist-card:hover .artist-name {
+    color: var(--volt);
+  }
+
+  .artist-tagline {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .artist-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .artist-note {
+    color: var(--volt);
+  }
+</style>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800" role="presentation">
+  <defs>
+    <radialGradient id="key-cyan-beams" cx="50%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#3BE0FF" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#E8FF3A" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#08121A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor-cyan-beams" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#08121A" stop-opacity="0"/>
+      <stop offset="70%" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.9"/>
+    </linearGradient>
+    
+  <filter id="grain-cyan-beams" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch" seed="7"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  </defs>
+  <rect width="800" height="800" fill="#08121A"/>
+  <polygon points="-120,0 -48,0 -344,800 -536,800"
+        fill="#3BE0FF" opacity="0.07"/><polygon points="13.333333333333343,0 85.33333333333334,0 -210.66666666666669,800 -402.66666666666663,800"
+        fill="#E8FF3A" opacity="0.10500000000000001"/><polygon points="146.66666666666669,0 218.66666666666669,0 -77.33333333333334,800 -269.3333333333333,800"
+        fill="#3BE0FF" opacity="0.14"/><polygon points="280,0 352,0 55.99999999999997,800 -136,800"
+        fill="#E8FF3A" opacity="0.07"/><polygon points="413.33333333333337,0 485.33333333333337,0 189.33333333333334,800 -2.6666666666666288,800"
+        fill="#3BE0FF" opacity="0.10500000000000001"/><polygon points="546.6666666666667,0 618.6666666666667,0 322.66666666666674,800 130.66666666666674,800"
+        fill="#E8FF3A" opacity="0.14"/><polygon points="680,0 752,0 456,800 264,800"
+        fill="#3BE0FF" opacity="0.07"/>
+  <rect width="800" height="800" fill="url(#key-cyan-beams)"/>
+  <rect width="800" height="800" fill="url(#floor-cyan-beams)"/>
+  <rect width="100%" height="100%" filter="url(#grain-cyan-beams)" opacity="0.16" style="mix-blend-mode:overlay"/>
+</svg>

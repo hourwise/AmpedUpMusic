@@ -1,0 +1,85 @@
+---
+/**
+ * Standard page header for non-event pages.
+ *
+ * Gives every interior page the same opening shape - eyebrow, oversized
+ * title, one line of orientation - so the site feels like one thing rather
+ * than a collection of pages that each invented their own top.
+ */
+interface Props {
+  eyebrow?: string;
+  title: string;
+  intro?: string;
+  /** Breadcrumb trail, rendered above the title. */
+  trail?: ReadonlyArray<{ label: string; href: string }>;
+  wide?: boolean;
+}
+
+const { eyebrow, title, intro, trail = [], wide = true } = Astro.props;
+---
+
+<header class="page-header">
+  <div class={wide ? 'container-wide' : 'container'}>
+    {
+      trail.length > 0 && (
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <ol>
+            {trail.map((item) => (
+              <li>
+                <a href={item.href}>{item.label}</a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )
+    }
+    {eyebrow && <p class="eyebrow eyebrow-accent">{eyebrow}</p>}
+    <h1 class="display display-lg page-title">{title}</h1>
+    {intro && <p class="lede page-intro">{intro}</p>}
+    <slot />
+  </div>
+</header>
+
+<style>
+  .page-header {
+    display: grid;
+    gap: var(--s-3);
+    padding-block: var(--s-7) var(--s-6);
+  }
+
+  .page-header > div {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .crumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .crumbs li + li::before {
+    content: '/';
+    margin-right: var(--s-2);
+    color: var(--hairline-strong);
+  }
+
+  .crumbs a {
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+
+  .crumbs a:hover {
+    color: var(--volt);
+  }
+
+  .page-title {
+    max-width: 18ch;
+  }
+
+  .page-intro {
+    max-width: 58ch;
+  }
+</style>

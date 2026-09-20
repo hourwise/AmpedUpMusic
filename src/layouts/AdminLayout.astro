@@ -1,0 +1,371 @@
+---
+/**
+ * Admin chrome.
+ *
+ * Designed for two non-technical operators, one of whom will mostly use a
+ * phone. Three rules drove the layout:
+ *
+ *  1. Never more than two levels deep. Every screen is reachable from the
+ *     sidebar, and every sidebar item is a noun somebody would actually say.
+ *  2. Nothing is hidden behind a hover, a kebab menu or an icon on its own.
+ *  3. Door Mode is pulled out of this chrome entirely (see DoorLayout) because
+ *     on the night it needs the whole screen and none of the navigation.
+ *
+ * On desktop the navigation is a fixed rail. On a phone it is a horizontally
+ * scrolling strip of the same items - no drawer, no burger, no JavaScript,
+ * because a menu that has to be opened is a menu that gets missed.
+ */
+import BaseLayout from './BaseLayout.astro';
+import AdminIcon from '@/components/admin/AdminIcon.astro';
+import Wordmark from '@/components/site/Wordmark.astro';
+import { ADMIN_NAV } from '@/lib/site.ts';
+import { isScaffoldData } from '@/services/index.ts';
+
+interface Props {
+  title: string;
+  /** Shown under the page title. One line, plain language. */
+  subtitle?: string;
+  /** Renders a back link above the title. */
+  back?: { label: string; href: string };
+  /** Page-level actions rendered opposite the title. */
+  wide?: boolean;
+}
+
+const { title, subtitle, back, wide = false } = Astro.props;
+const pathname = Astro.url.pathname;
+
+const isActive = (href: string) =>
+  href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
+
+/** The operator identity comes from Cloudflare Access in AMPED-04A. */
+const operator = Astro.locals.operator ?? { email: 'anya@ampedupmusic.co.uk', name: 'Anya' };
+---
+
+<BaseLayout
+  title={`${title} - Admin`}
+  description="Amped Up Music Promotions administration."
+  noindex
+  bodyClass="admin-body"
+>
+  <a class="skip-link" href="#admin-main">Skip to content</a>
+
+  <div class="admin">
+    <header class="admin-top">
+      <div class="admin-top-inner">
+        <Wordmark href="/admin" size="sm" />
+        <p class="admin-badge">Admin</p>
+        <div class="admin-who">
+          <span class="admin-who-name">{operator.name ?? operator.email}</span>
+          <a class="admin-view-site" href="/">View site</a>
+        </div>
+      </div>
+    </header>
+
+    <nav class="admin-nav" aria-label="Admin sections">
+      <ul>
+        {
+          ADMIN_NAV.map((item) => (
+            <li class:list={[item.standalone && 'admin-nav-standalone']}>
+              <a href={item.href} aria-current={isActive(item.href) ? 'page' : undefined}>
+                <AdminIcon name={item.icon} />
+                <span>{item.label}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <main class="admin-main" id="admin-main">
+      <div class:list={['admin-container', wide && 'admin-container-wide']}>
+        {
+          isScaffoldData() && (
+            <p class="admin-scaffold" role="status">
+              <strong>Scaffold data.</strong> This admin is running on demonstration records, not a
+              database. Nothing you do here is saved, and no email or payment leaves the building.
+            </p>
+          )
+        }
+
+        <div class="admin-head">
+          <div>
+            {
+              back && (
+                <a class="admin-back" href={back.href}>
+                  <AdminIcon name="back" size={16} />
+                  {back.label}
+                </a>
+              )
+            }
+            <h1 class="display display-md admin-title">{title}</h1>
+            {subtitle && <p class="admin-subtitle">{subtitle}</p>}
+          </div>
+          <div class="admin-actions">
+            <slot name="actions" />
+          </div>
+        </div>
+
+        <slot />
+      </div>
+    </main>
+  </div>
+</BaseLayout>
+
+<style is:global>
+  /* The admin is calmer than the public site: no stage wash behind the data. */
+  .admin-body .stage-wash {
+    opacity: 0.35;
+  }
+</style>
+
+<style>
+  .admin {
+    position: relative;
+    z-index: 1;
+    min-height: 100svh;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+  }
+
+  /* --- Top bar ------------------------------------------------------------ */
+
+  .admin-top {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-header);
+    background: rgb(8 8 11 / 92%);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .admin-top-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--gutter);
+    max-width: var(--container-wide);
+    margin-inline: auto;
+  }
+
+  .admin-badge {
+    padding: 0.15em 0.6em;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    font-family: var(--font-display);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .admin-who {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    font-size: var(--step--2);
+  }
+
+  .admin-who-name {
+    color: var(--text-muted);
+    display: none;
+  }
+
+  .admin-view-site {
+    color: var(--text-muted);
+    text-decoration: none;
+    min-height: 2.5rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .admin-view-site:hover {
+    color: var(--volt);
+  }
+
+  /* --- Navigation ---------------------------------------------------------- */
+
+  .admin-nav {
+    position: sticky;
+    top: calc(var(--header-h) - 0.5rem);
+    z-index: calc(var(--z-header) - 1);
+    background: var(--ink-base);
+    border-bottom: 1px solid var(--hairline);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .admin-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-nav ul {
+    display: flex;
+    gap: var(--s-1);
+    padding: var(--s-2) var(--gutter);
+    min-width: max-content;
+  }
+
+  .admin-nav a {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-4);
+    border-radius: var(--r-pill);
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+
+  .admin-nav a:hover {
+    background: rgb(255 255 255 / 6%);
+    color: var(--text);
+  }
+
+  .admin-nav a[aria-current='page'] {
+    background: var(--volt);
+    color: var(--text-on-accent);
+  }
+
+  .admin-nav-standalone a {
+    border: 1px solid color-mix(in srgb, var(--stage-cyan) 45%, transparent);
+    color: var(--stage-cyan);
+  }
+
+  .admin-nav-standalone a[aria-current='page'] {
+    background: var(--stage-cyan);
+    color: var(--text-on-accent);
+  }
+
+  /* --- Main ---------------------------------------------------------------- */
+
+  .admin-main {
+    padding-block: var(--s-6) var(--s-9);
+  }
+
+  .admin-container {
+    width: 100%;
+    max-width: 68rem;
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+    display: grid;
+    gap: var(--s-5);
+    align-content: start;
+  }
+
+  .admin-container-wide {
+    max-width: var(--container-wide);
+  }
+
+  .admin-scaffold {
+    padding: var(--s-3) var(--s-4);
+    border: 1px dashed color-mix(in srgb, var(--stage-cyan) 45%, transparent);
+    border-radius: var(--r);
+    background: color-mix(in srgb, var(--stage-cyan) 7%, transparent);
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .admin-scaffold strong {
+    color: var(--stage-cyan);
+  }
+
+  .admin-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--s-4);
+  }
+
+  .admin-back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 2.5rem;
+    font-size: var(--step--2);
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    text-decoration: none;
+  }
+
+  .admin-back:hover {
+    color: var(--volt);
+  }
+
+  .admin-title {
+    font-size: var(--step-3);
+  }
+
+  .admin-subtitle {
+    margin-top: var(--s-2);
+    color: var(--text-muted);
+    font-size: var(--step--1);
+    max-width: 56ch;
+  }
+
+  .admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+  }
+
+  @media (min-width: 40rem) {
+    .admin-who-name {
+      display: inline;
+    }
+  }
+
+  /* Desktop: the navigation becomes a fixed rail beside the content. */
+  @media (min-width: 72rem) {
+    .admin {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      grid-template-rows: auto 1fr;
+    }
+
+    .admin-top {
+      grid-column: 1 / -1;
+    }
+
+    .admin-nav {
+      position: sticky;
+      top: var(--header-h);
+      align-self: start;
+      height: calc(100svh - var(--header-h));
+      overflow-x: visible;
+      overflow-y: auto;
+      border-bottom: 0;
+      border-right: 1px solid var(--hairline);
+      background: transparent;
+    }
+
+    .admin-nav ul {
+      flex-direction: column;
+      min-width: 0;
+      padding: var(--s-4) var(--s-3);
+      gap: var(--s-1);
+    }
+
+    .admin-nav a {
+      border-radius: var(--r-sm);
+    }
+
+    .admin-nav-standalone {
+      margin-top: var(--s-4);
+      padding-top: var(--s-4);
+      border-top: 1px solid var(--hairline);
+    }
+
+    .admin-container {
+      padding-inline: var(--s-6);
+    }
+  }
+</style>

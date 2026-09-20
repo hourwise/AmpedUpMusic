@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800" role="presentation">
+  <defs>
+    <radialGradient id="key-ember-grid" cx="50%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#FF8A1A" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#FF2E4D" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#160B08" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor-ember-grid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#160B08" stop-opacity="0"/>
+      <stop offset="70%" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.9"/>
+    </linearGradient>
+    
+  <filter id="grain-ember-grid" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch" seed="7"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  </defs>
+  <rect width="800" height="800" fill="#160B08"/>
+  <line x1="0" y1="57.142857142857146" x2="800" y2="57.142857142857146" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.08"/><line x1="0" y1="114.28571428571429" x2="800" y2="114.28571428571429" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.11"/><line x1="0" y1="171.42857142857144" x2="800" y2="171.42857142857144" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.05"/><line x1="0" y1="228.57142857142858" x2="800" y2="228.57142857142858" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.08"/><line x1="0" y1="285.7142857142857" x2="800" y2="285.7142857142857" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.11"/><line x1="0" y1="342.8571428571429" x2="800" y2="342.8571428571429" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.05"/><line x1="0" y1="400" x2="800" y2="400" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.08"/><line x1="0" y1="457.14285714285717" x2="800" y2="457.14285714285717" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.11"/><line x1="0" y1="514.2857142857143" x2="800" y2="514.2857142857143" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.05"/><line x1="0" y1="571.4285714285714" x2="800" y2="571.4285714285714" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.08"/><line x1="0" y1="628.5714285714286" x2="800" y2="628.5714285714286" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.11"/><line x1="0" y1="685.7142857142858" x2="800" y2="685.7142857142858" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.05"/><line x1="0" y1="742.8571428571429" x2="800" y2="742.8571428571429" stroke="#FF8A1A"
+        stroke-width="1" opacity="0.08"/><line x1="80" y1="0" x2="80" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="160" y1="0" x2="160" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="240" y1="0" x2="240" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="320" y1="0" x2="320" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="400" y1="0" x2="400" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="480" y1="0" x2="480" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="560" y1="0" x2="560" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="640" y1="0" x2="640" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><line x1="720" y1="0" x2="720" y2="800" stroke="#FF2E4D"
+        stroke-width="1" opacity="0.06"/><circle cx="400" cy="320" r="240" fill="#FF2E4D" opacity="0.10"/>
+  <rect width="800" height="800" fill="url(#key-ember-grid)"/>
+  <rect width="800" height="800" fill="url(#floor-ember-grid)"/>
+  <rect width="100%" height="100%" filter="url(#grain-ember-grid)" opacity="0.16" style="mix-blend-mode:overlay"/>
+</svg>

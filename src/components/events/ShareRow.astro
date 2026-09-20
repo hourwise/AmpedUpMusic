@@ -1,0 +1,90 @@
+---
+/**
+ * Share controls.
+ *
+ * Uses the Web Share API where it exists, which on a phone is the whole point:
+ * it opens the native sheet and puts the gig into whichever app the person
+ * actually uses. Falls back to copy-to-clipboard, and then to a plain mailto
+ * link if neither is available.
+ */
+interface Props {
+  title: string;
+  /** Root-relative path. Resolved to an absolute URL in the browser. */
+  path: string;
+  summary: string;
+}
+
+const { title, path, summary } = Astro.props;
+---
+
+<div class="share" data-share data-title={title} data-path={path} data-summary={summary}>
+  <span class="share-label eyebrow">Tell someone</span>
+  <button type="button" class="share-btn" data-share-button>
+    Share this gig
+  </button>
+  <span class="share-status" data-share-status role="status" aria-live="polite"></span>
+</div>
+
+<script>
+  const root = document.querySelector<HTMLElement>('[data-share]');
+  const button = root?.querySelector<HTMLButtonElement>('[data-share-button]');
+  const status = root?.querySelector<HTMLElement>('[data-share-status]');
+
+  button?.addEventListener('click', async () => {
+    if (!root) return;
+    const url = new URL(root.dataset.path ?? '/', window.location.origin).toString();
+    const title = root.dataset.title ?? document.title;
+    const text = root.dataset.summary ?? '';
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      if (status) status.textContent = 'Link copied';
+    } catch {
+      // A cancelled share sheet lands here too, so say nothing rather than
+      // reporting an error the person caused on purpose.
+      if (status && !navigator.share) status.textContent = 'Could not copy - the link is in the address bar';
+    }
+    window.setTimeout(() => {
+      if (status) status.textContent = '';
+    }, 3000);
+  });
+</script>
+
+<style>
+  .share {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+  }
+
+  .share-btn {
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-5);
+    background: transparent;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-pill);
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+  }
+
+  .share-btn:hover {
+    border-color: var(--volt);
+    color: var(--volt);
+  }
+
+  .share-status {
+    font-size: var(--step--2);
+    color: var(--volt);
+  }
+</style>

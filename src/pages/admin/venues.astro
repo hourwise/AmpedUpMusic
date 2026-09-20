@@ -1,0 +1,248 @@
+---
+/**
+ * Venue directory.
+ *
+ * Same idea as artists: enter a room once and it is in the dropdown forever.
+ *
+ * Accessibility information lives on the VENUE, not on the event, because it
+ * is a property of the building. Putting it here means it cannot be forgotten
+ * when a gig is created in a hurry, and correcting it once fixes every event
+ * page at that venue at the same time.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Field from '@/components/ui/Field.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+
+const services = getServices();
+const [venues, gigs] = await Promise.all([services.venues.list(), services.admin.listAll()]);
+
+const usage = new Map<string, { total: number; upcoming: number }>();
+for (const gig of gigs) {
+  const entry = usage.get(gig.venue.id) ?? { total: 0, upcoming: 0 };
+  entry.total += 1;
+  if (!gig.isPast) entry.upcoming += 1;
+  usage.set(gig.venue.id, entry);
+}
+---
+
+<AdminLayout
+  title="Venues"
+  subtitle="The rooms you use. Access information you enter here appears automatically on every gig at that venue."
+  wide
+>
+  <Button slot="actions" variant="volt" size="md" href="#add-venue">Add a venue</Button>
+
+  {
+    venues.length > 0 ? (
+      <ul class="venue-grid">
+        {venues.map((venue) => {
+          const used = usage.get(venue.id);
+          return (
+            <li class="venue-item surface">
+              <div class="venue-head">
+                <h2 class="display display-sm">{venue.name}</h2>
+                {venue.capacity && <p class="venue-cap">Holds {venue.capacity}</p>}
+              </div>
+
+              <address class="venue-address">
+                {[venue.addressLine1, venue.addressLine2, venue.city, venue.postcode]
+                  .filter(Boolean)
+                  .join(', ')}
+              </address>
+
+              {venue.standardNotes && <p class="venue-notes">{venue.standardNotes}</p>}
+
+              <div class="venue-access">
+                <p class="eyebrow eyebrow-accent">Access</p>
+                <p>{venue.accessibilityInfo ?? 'Not filled in yet.'}</p>
+              </div>
+
+              <p class="venue-usage">
+                {used?.total ?? 0} {used?.total === 1 ? 'gig' : 'gigs'} here
+                {used && used.upcoming > 0 && <span class="venue-upcoming">{used.upcoming} coming up</span>}
+              </p>
+
+              <div class="venue-actions">
+                <Button variant="ghost" size="sm">Edit</Button>
+                {venue.mapUrl && (
+                  <Button href={venue.mapUrl} variant="ghost" size="sm" rel="noopener">
+                    Map
+                  </Button>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    ) : (
+      <EmptyState
+        title="No venues yet"
+        body="Add the rooms you put gigs on in, and they will be in the dropdown when you create a promotion."
+        actionHref="#add-venue"
+        actionLabel="Add a venue"
+      />
+    )
+  }
+
+  <section class="add-panel surface" id="add-venue" aria-labelledby="add-venue-heading">
+    <h2 class="display display-sm" id="add-venue-heading">Add a venue</h2>
+
+    <Callout tone="volt" label="Worth getting right" title="Access information is not optional">
+      <p>
+        Whatever you write in the access box appears on every gig page at this venue. Be specific
+        and be honest - "down twelve steps, no lift" is far more useful to somebody than leaving it
+        blank or writing "please contact us".
+      </p>
+    </Callout>
+
+    <form class="add-form" data-mock="AMPED-04C venue CRUD">
+      <div class="add-grid">
+        <Field name="name" label="Venue name" required />
+        <Field name="capacity" label="Capacity" type="number" min={0} />
+      </div>
+      <div class="add-grid">
+        <Field name="addressLine1" label="Address" required />
+        <Field name="addressLine2" label="Address line 2" />
+      </div>
+      <div class="add-grid">
+        <Field name="city" label="Town or city" required />
+        <Field name="postcode" label="Postcode" required />
+      </div>
+      <Field
+        name="mapUrl"
+        label="Map link"
+        type="url"
+        hint="Paste a link from your maps app so the pin is right."
+      />
+      <Field name="websiteUrl" label="Venue website" type="url" />
+      <Field
+        name="standardNotes"
+        label="Things that are always true here"
+        as="textarea"
+        rows={3}
+        hint="Bar times, parking, cloakroom, which door to use."
+      />
+      <Field
+        name="accessibilityInfo"
+        label="Access information"
+        as="textarea"
+        rows={4}
+        required
+        hint="Step-free or not, toilets, viewing positions, assistance dogs, hearing loop."
+      />
+
+      <div class="add-actions">
+        <Button type="submit" variant="volt" size="md">Save venue</Button>
+      </div>
+    </form>
+
+    <ScaffoldNote slice="AMPED-04C">
+      Venue records are read-only here. This slice adds create and edit, with archive rather than
+      delete for any venue that has ever hosted an event.
+    </ScaffoldNote>
+  </section>
+</AdminLayout>
+
+<style>
+  .venue-grid {
+    display: grid;
+    gap: var(--s-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 23rem), 1fr));
+  }
+
+  .venue-item {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-5);
+    align-content: start;
+  }
+
+  .venue-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-2);
+  }
+
+  .venue-cap {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .venue-address {
+    font-style: normal;
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .venue-notes {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .venue-access {
+    display: grid;
+    gap: var(--s-1);
+    padding: var(--s-3);
+    border-radius: var(--r-sm);
+    background: rgb(255 255 255 / 3%);
+    border: 1px solid var(--hairline);
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .venue-usage {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .venue-upcoming {
+    color: var(--go);
+  }
+
+  .venue-actions {
+    display: flex;
+    gap: var(--s-2);
+  }
+
+  .add-panel {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+    scroll-margin-top: calc(var(--header-h) + var(--s-6));
+  }
+
+  .add-form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .add-grid {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  @media (min-width: 44rem) {
+    .add-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    }
+  }
+
+  .add-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+</style>

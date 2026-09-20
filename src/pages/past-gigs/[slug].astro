@@ -1,0 +1,180 @@
+---
+/**
+ * A finished gig.
+ *
+ * Same object as /gigs/[slug] with a different job: instead of selling, it
+ * remembers. The hero and lineup carry over, the ticket panel is replaced by
+ * the gallery, and the AnyaParallax link is given proper prominence because
+ * that is the reason anybody comes back to one of these pages.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import EventHero from '@/components/events/EventHero.astro';
+import Lineup from '@/components/events/Lineup.astro';
+import VenuePanel from '@/components/events/VenuePanel.astro';
+import ShareRow from '@/components/events/ShareRow.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import GalleryGrid from '@/components/gallery/GalleryGrid.astro';
+import SocialLinks from '@/components/site/SocialLinks.astro';
+import NotFound from '@/components/site/NotFound.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import Section from '@/components/ui/Section.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd, musicEventJsonLd } from '@/lib/seo.ts';
+import { paragraphs } from '@/lib/text.ts';
+import { SITE } from '@/lib/site.ts';
+
+const { slug } = Astro.params;
+const services = getServices();
+const event = slug ? await services.events.getBySlug(slug) : null;
+
+// An event that has not happened yet belongs on /gigs.
+if (event && !event.isPast) {
+  return Astro.redirect(`/gigs/${event.slug}`, 301);
+}
+
+if (!event) {
+  Astro.response.status = 404;
+}
+
+const past = event ? await services.events.listPast(4) : [];
+const more = event ? past.filter((e) => e.id !== event.id).slice(0, 3) : [];
+const body = event ? paragraphs(event.description) : [];
+
+const description = event
+  ? `${event.title} at ${event.venue.name}, ${event.dateLabel}. Photographs and line-up from the night.`
+  : 'Gig not found.';
+---
+
+{
+  !event ? (
+    <SiteLayout title="Gig not found" description={description} noindex>
+      <NotFound
+        title="We cannot find that gig"
+        body="It may have been archived, or the link may be wrong. Here is what is coming up."
+      />
+    </SiteLayout>
+  ) : (
+    <SiteLayout
+      title={`${event.title} - ${event.venue.name}, ${event.shortDateLabel}`}
+      description={description}
+      image={event.heroUrl ?? event.posterUrl ?? '/media/og-default.svg'}
+      imageAlt={event.heroAlt ?? event.posterAlt ?? event.title}
+      type="event"
+      flush
+      jsonLd={[
+        musicEventJsonLd(event),
+        breadcrumbJsonLd([
+          { label: 'Home', href: '/' },
+          { label: 'Past gigs', href: '/past-gigs' },
+          { label: event.title, href: event.href },
+        ]),
+      ]}
+    >
+      <EventHero event={event} />
+
+      <div class="past-body container-wide">
+        <div class="past-main">
+          <div class="prose">
+            {body.map((paragraph) => (
+              <p>{paragraph}</p>
+            ))}
+          </div>
+
+          <section aria-labelledby="gallery-heading" class="past-block">
+            <h2 class="display display-sm" id="gallery-heading">Photographs</h2>
+            {event.gallery.length > 0 ? (
+              <GalleryGrid
+                assets={event.gallery}
+                featureFirst
+                credit={event.photography?.credit}
+                creditUrl={event.photography?.photographerUrl}
+              />
+            ) : (
+              <EmptyState
+                variant="quiet"
+                title="No photographs yet"
+                body={`Galleries usually go up within a week of the gig. ${SITE.photographyPartner.name} shoots every Amped Up night.`}
+              />
+            )}
+
+            {event.photography?.galleryUrl && (
+              <p class="past-gallery-link">
+                <a href={event.photography.galleryUrl} rel="noopener">
+                  See the full set on {event.photography.credit}
+                </a>
+              </p>
+            )}
+          </section>
+
+          <section aria-labelledby="past-lineup-heading" class="past-block">
+            <h2 class="display display-sm" id="past-lineup-heading">Who played</h2>
+            <Lineup lineup={event.lineup} showSetTimes={false} />
+          </section>
+        </div>
+
+        <aside class="past-aside">
+          <VenuePanel event={event} />
+          <div class="past-social">
+            <SocialLinks links={event.links} subject={event.title} size="sm" />
+          </div>
+          <ShareRow
+            title={`${event.title} - ${SITE.shortName}`}
+            path={event.href}
+            summary={`${event.title} at ${event.venue.name}, ${event.dateLabel}`}
+          />
+        </aside>
+      </div>
+
+      {more.length > 0 && (
+        <Section
+          eyebrow="More from the archive"
+          heading="Other nights"
+          actionHref="/past-gigs"
+          actionLabel="All past gigs"
+          wide
+          tight
+        >
+          <div class="grid-cards">
+            {more.map((other) => (
+              <EventCard event={other} hideCta />
+            ))}
+          </div>
+        </Section>
+      )}
+    </SiteLayout>
+  )
+}
+
+<style>
+  .past-body {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-8);
+  }
+
+  .past-main,
+  .past-aside {
+    display: grid;
+    gap: var(--s-6);
+    min-width: 0;
+    align-content: start;
+  }
+
+  .past-block {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .past-gallery-link a {
+    color: var(--volt);
+    font-size: var(--step--1);
+  }
+
+  @media (min-width: 64rem) {
+    .past-body {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+      column-gap: var(--s-8);
+      align-items: start;
+    }
+  }
+</style>

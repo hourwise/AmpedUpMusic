@@ -1,0 +1,145 @@
+---
+/**
+ * Door Mode - choose tonight's gig.
+ *
+ * One tap from here to scanning. The gig happening soonest is at the top and
+ * marked, because nine times out of ten that is the right answer and the
+ * operator should not have to read a list at all.
+ */
+import DoorLayout from '@/layouts/DoorLayout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { relativeDayLabel } from '@/lib/dates.ts';
+
+const services = getServices();
+const events = await services.door.listDoorEvents();
+
+const counts = new Map(
+  await Promise.all(
+    events.map(async (event) => [event.id, await services.door.admissionCounts(event.id)] as const),
+  ),
+);
+---
+
+<DoorLayout title="Choose a gig" eventTitle="Choose a gig">
+  <div class="choose">
+    <p class="choose-intro">Which gig are you on the door for?</p>
+
+    {
+      events.length > 0 ? (
+        <ul class="choose-list">
+          {events.map((event, index) => {
+            const count = counts.get(event.id);
+            const relative = relativeDayLabel(event.startsAt);
+            return (
+              <li>
+                <a class:list={['choose-item', index === 0 && 'choose-item-first']} href={`/admin/door/${event.id}`}>
+                  <span class="choose-when">
+                    {relative ?? event.shortDateLabel}
+                    {index === 0 && <span class="choose-flag">Most likely</span>}
+                  </span>
+                  <span class="choose-title">{event.title}</span>
+                  <span class="choose-venue">{event.venue.name}, {event.venue.city}</span>
+                  <span class="choose-stats">
+                    Doors {event.doorsLabel}
+                    {count && <> &middot; {count.expected} on the list</>}
+                    {count && count.admitted > 0 && <> &middot; {count.admitted} in</>}
+                  </span>
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <EmptyState
+          title="No gigs to work"
+          body="There are no published gigs to check people into."
+          actionHref="/admin/gigs"
+          actionLabel="Back to gigs"
+        />
+      )
+    }
+  </div>
+</DoorLayout>
+
+<style>
+  .choose {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5) var(--s-4) var(--s-8);
+    max-width: 36rem;
+    margin-inline: auto;
+  }
+
+  .choose-intro {
+    font-family: var(--font-display);
+    font-size: var(--step-1);
+    font-weight: 700;
+  }
+
+  .choose-list {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .choose-item {
+    display: grid;
+    gap: var(--s-1);
+    padding: var(--s-4);
+    min-height: 5.5rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-lg);
+    background: var(--ink-raised);
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .choose-item:hover,
+  .choose-item:focus-visible {
+    border-color: var(--stage-cyan);
+  }
+
+  .choose-item-first {
+    border-color: var(--volt);
+    background: color-mix(in srgb, var(--volt) 8%, var(--ink-raised));
+  }
+
+  .choose-when {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .choose-flag {
+    padding: 0.1em 0.5em;
+    border-radius: var(--r-pill);
+    background: var(--volt);
+    color: var(--text-on-accent);
+    letter-spacing: 0.06em;
+  }
+
+  .choose-title {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 80%;
+    font-size: var(--step-2);
+    text-transform: uppercase;
+    line-height: 1.05;
+  }
+
+  .choose-venue {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .choose-stats {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+</style>

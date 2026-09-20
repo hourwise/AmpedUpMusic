@@ -1,0 +1,87 @@
+---
+/**
+ * The artist directory.
+ *
+ * Doubles as the promoter's own address book: entering an act once means it
+ * can be picked from a list when building the next promotion (AMPED-04C), so
+ * this page and the admin artist picker are the same records.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import ArtistCard from '@/components/artists/ArtistCard.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+
+const services = getServices();
+const artists = await services.artists.list();
+
+/** Artist portraits, resolved through the media service rather than reaching
+ *  into the fixtures. Pages never import from src/data. */
+const artistImages = new Map<string, string>();
+for (const artist of artists) {
+  if (!artist.imageAssetId) continue;
+  const asset = await services.media.get(artist.imageAssetId);
+  if (asset) artistImages.set(artist.id, asset.url);
+}
+
+/** Which of these acts are on a future bill, so the card can say so. */
+const upcoming = await services.events.listUpcoming();
+const nextAppearance = new Map<string, string>();
+for (const event of upcoming) {
+  for (const entry of event.lineup) {
+    if (!nextAppearance.has(entry.artist.id)) {
+      nextAppearance.set(entry.artist.id, event.shortDateLabel);
+    }
+  }
+}
+---
+
+<SiteLayout
+  title="Artists"
+  description="Every band and act Amped Up Music Promotions has put on, with links to their music."
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'Artists', href: '/artists' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Who we book"
+    title="Artists"
+    intro="Every act we have put on. If you want to play for us, there is a form for that."
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="container-wide artists-page">
+    {
+      artists.length > 0 ? (
+        <div class="grid-cards">
+          {artists.map((artist) => (
+            <ArtistCard
+              artist={artist}
+              imageUrl={artistImages.get(artist.id)}
+              note={
+                nextAppearance.has(artist.id) ? `Playing ${nextAppearance.get(artist.id)}` : undefined
+              }
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="No artists listed yet"
+          body="Acts appear here once they have played for us."
+          actionHref="/promote-with-us"
+          actionLabel="Play for us"
+        />
+      )
+    }
+  </div>
+</SiteLayout>
+
+<style>
+  .artists-page {
+    padding-bottom: var(--s-9);
+  }
+</style>

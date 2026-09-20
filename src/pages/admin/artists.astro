@@ -1,0 +1,234 @@
+---
+/**
+ * Artist directory.
+ *
+ * Enter an act once and it is available from the Line-up step of every future
+ * promotion. That is the whole value of this screen: it turns the second gig
+ * with a band into three taps instead of retyping a biography.
+ *
+ * Add-and-edit is a form on the same page rather than a separate route,
+ * because a directory of ten acts does not need a detail page each.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Field from '@/components/ui/Field.astro';
+import Button from '@/components/ui/Button.astro';
+import PosterImage from '@/components/events/PosterImage.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+
+const services = getServices();
+const artists = await services.artists.list();
+
+/** How many gigs each act has done, so the list is sorted by usefulness. */
+const rows = await Promise.all(
+  artists.map(async (artist) => {
+    const events = await services.artists.eventsFor(artist.id);
+    const image = artist.imageAssetId ? await services.media.get(artist.imageAssetId) : null;
+    return {
+      artist,
+      imageUrl: image?.url,
+      total: events.length,
+      upcoming: events.filter((e) => !e.isPast).length,
+    };
+  }),
+);
+---
+
+<AdminLayout
+  title="Artists"
+  subtitle="Your address book. Anything in here can be picked straight from the Line-up step when you build a gig."
+  wide
+>
+  <Button slot="actions" variant="volt" size="md" href="#add-artist">Add an artist</Button>
+
+  {
+    rows.length > 0 ? (
+      <ul class="artist-grid">
+        {rows.map((row) => (
+          <li class="artist-item surface">
+            <div class="artist-image">
+              <PosterImage src={row.imageUrl} alt="" title={row.artist.name} ratio="square" />
+            </div>
+            <div class="artist-body">
+              <h2 class="artist-name display display-sm">{row.artist.name}</h2>
+              {row.artist.genre && <p class="artist-genre">{row.artist.genre}</p>}
+              {row.artist.tagline && <p class="artist-tagline">{row.artist.tagline}</p>}
+              <p class="artist-count">
+                {row.total} {row.total === 1 ? 'gig' : 'gigs'} with us
+                {row.upcoming > 0 && <span class="artist-upcoming">{row.upcoming} coming up</span>}
+              </p>
+              <div class="artist-actions">
+                <Button variant="ghost" size="sm">Edit</Button>
+                <Button href={`/artists/${row.artist.slug}`} variant="ghost" size="sm">
+                  View page
+                </Button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <EmptyState
+        title="No artists yet"
+        body="Add the acts you book and they will be here next time."
+        actionHref="#add-artist"
+        actionLabel="Add an artist"
+      />
+    )
+  }
+
+  <section class="add-panel surface" id="add-artist" aria-labelledby="add-artist-heading">
+    <h2 class="display display-sm" id="add-artist-heading">Add an artist</h2>
+    <p class="add-intro">
+      Only the name is needed to get going. Everything else can be filled in later.
+    </p>
+
+    <form class="add-form" data-mock="AMPED-04C artist CRUD">
+      <div class="add-grid">
+        <Field name="name" label="Name" required hint="Exactly as they spell it." />
+        <Field name="genre" label="Genre" hint="Indie rock, folk, DJ - whatever you would say." />
+        <Field name="basedIn" label="Based in" hint="Town or city." />
+      </div>
+      <Field
+        name="tagline"
+        label="One-line description"
+        hint="Shown under their name on cards and line-ups."
+      />
+      <Field name="biography" label="Biography" as="textarea" rows={5} />
+
+      <fieldset class="add-socials">
+        <legend>Links</legend>
+        <div class="add-grid">
+          <Field name="instagram" label="Instagram" type="url" />
+          <Field name="tiktok" label="TikTok" type="url" />
+          <Field name="bandcamp" label="Bandcamp" type="url" />
+          <Field name="spotify" label="Spotify" type="url" />
+          <Field name="youtube" label="YouTube" type="url" />
+          <Field name="website" label="Website" type="url" />
+        </div>
+      </fieldset>
+
+      <div class="add-actions">
+        <Button type="submit" variant="volt" size="md">Save artist</Button>
+      </div>
+    </form>
+
+    <ScaffoldNote slice="AMPED-04C">
+      Artist and venue records are read-only here. This slice adds create, edit and archive, with
+      the rule that an artist who appears on any event can be archived but never hard-deleted.
+    </ScaffoldNote>
+  </section>
+</AdminLayout>
+
+<style>
+  .artist-grid {
+    display: grid;
+    gap: var(--s-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  }
+
+  .artist-item {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: var(--s-4);
+    padding: var(--s-4);
+    align-items: start;
+  }
+
+  .artist-body {
+    display: grid;
+    gap: var(--s-1);
+    min-width: 0;
+  }
+
+  .artist-name {
+    font-size: var(--step-0);
+  }
+
+  .artist-genre {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .artist-tagline {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .artist-count {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    margin-top: var(--s-1);
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .artist-upcoming {
+    color: var(--go);
+  }
+
+  .artist-actions {
+    display: flex;
+    gap: var(--s-2);
+    margin-top: var(--s-2);
+  }
+
+  .add-panel {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+    scroll-margin-top: calc(var(--header-h) + var(--s-6));
+  }
+
+  .add-intro {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+  }
+
+  .add-form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .add-grid {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  @media (min-width: 44rem) {
+    .add-grid {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    }
+  }
+
+  .add-socials {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-4);
+    margin: 0;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+  }
+
+  .add-socials legend {
+    padding-inline: var(--s-2);
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    font-weight: 700;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .add-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+</style>

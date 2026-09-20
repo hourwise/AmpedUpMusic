@@ -1,0 +1,96 @@
+---
+/**
+ * Generic status pill.
+ *
+ * Status is never carried by colour alone: every badge has a word, and the
+ * `dot` is a redundant cue rather than the message. AvailabilityBadge and
+ * StatusBadge both build on this.
+ */
+interface Props {
+  tone?: 'go' | 'warn' | 'urgent' | 'stop' | 'muted' | 'volt' | 'neutral';
+  size?: 'sm' | 'md';
+  /** Shows a leading dot. Decorative; the label still carries the meaning. */
+  dot?: boolean;
+  /** Announced by screen readers in place of the visible short label. */
+  title?: string;
+  class?: string;
+}
+
+const { tone = 'neutral', size = 'md', dot = false, title, class: className = '' } = Astro.props;
+---
+
+<span class:list={['badge', `badge-${tone}`, `badge-${size}`, className]} title={title}>
+  {dot && <span class="badge-dot" aria-hidden="true"></span>}
+  <slot />
+</span>
+
+<style>
+  .badge {
+    --badge-fg: var(--text-muted);
+    --badge-bg: rgb(255 255 255 / 5%);
+    --badge-border: var(--hairline);
+
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: 0.28em 0.7em;
+    border: 1px solid var(--badge-border);
+    border-radius: var(--r-pill);
+    background: var(--badge-bg);
+    color: var(--badge-fg);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--step--2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .badge-sm {
+    font-size: 0.66rem;
+    padding: 0.2em 0.6em;
+  }
+
+  .badge-dot {
+    width: 0.44em;
+    height: 0.44em;
+    border-radius: 50%;
+    background: currentcolor;
+    flex: none;
+  }
+
+  .badge-go {
+    --badge-fg: var(--go);
+    --badge-bg: color-mix(in srgb, var(--go) 12%, transparent);
+    --badge-border: color-mix(in srgb, var(--go) 35%, transparent);
+  }
+
+  .badge-warn {
+    --badge-fg: var(--warn);
+    --badge-bg: color-mix(in srgb, var(--warn) 12%, transparent);
+    --badge-border: color-mix(in srgb, var(--warn) 35%, transparent);
+  }
+
+  .badge-urgent {
+    --badge-fg: var(--urgent);
+    --badge-bg: color-mix(in srgb, var(--urgent) 14%, transparent);
+    --badge-border: color-mix(in srgb, var(--urgent) 42%, transparent);
+  }
+
+  .badge-stop {
+    --badge-fg: var(--stop);
+    --badge-bg: color-mix(in srgb, var(--stop) 13%, transparent);
+    --badge-border: color-mix(in srgb, var(--stop) 40%, transparent);
+  }
+
+  .badge-volt {
+    --badge-fg: var(--text-on-accent);
+    --badge-bg: var(--volt);
+    --badge-border: var(--volt);
+  }
+
+  .badge-muted {
+    --badge-fg: var(--muted-status);
+  }
+</style>

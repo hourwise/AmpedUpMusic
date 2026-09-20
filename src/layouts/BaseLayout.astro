@@ -1,0 +1,122 @@
+---
+/**
+ * The document shell. Everything - public, admin and Door Mode - goes through
+ * here, so <head>, fonts, the grain overlay and the reduced-motion-aware
+ * reveal script exist in exactly one place.
+ */
+import '@/styles/tokens.css';
+import '@/styles/base.css';
+import { SITE } from '@/lib/site.ts';
+import { absoluteUrl, pageTitle } from '@/lib/seo.ts';
+import type { PageMeta } from '@/lib/seo.ts';
+
+interface Props extends PageMeta {
+  /** Extra classes on <body>, used to switch chrome between site and admin. */
+  bodyClass?: string;
+  /** JSON-LD blocks to emit. Already plain objects; serialised here. */
+  jsonLd?: Array<Record<string, unknown>>;
+  /** Door Mode wants the viewport locked and the address bar out of the way. */
+  lockViewport?: boolean;
+}
+
+const {
+  title,
+  description = SITE.description,
+  image = '/media/og-default.svg',
+  imageAlt = SITE.name,
+  canonical,
+  type = 'website',
+  noindex = false,
+  bodyClass = '',
+  jsonLd = [],
+  lockViewport = false,
+} = Astro.props;
+
+const resolvedTitle = pageTitle(title);
+const canonicalUrl = canonical ? absoluteUrl(canonical) : absoluteUrl(Astro.url.pathname);
+const imageUrl = absoluteUrl(image);
+---
+
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content={lockViewport
+        ? 'width=device-width, initial-scale=1, viewport-fit=cover'
+        : 'width=device-width, initial-scale=1'}
+    />
+    <title>{resolvedTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+
+    <meta name="theme-color" content="#08080b" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="generator" content={Astro.generator} />
+
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:type" content={type === 'event' ? 'article' : type} />
+    <meta property="og:title" content={resolvedTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta property="og:locale" content="en_GB" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={resolvedTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageUrl} />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      One variable family with a width axis supplies both the condensed poster
+      headlines and the body copy. AMPED-11 should self-host this to remove the
+      third-party request and the flash of fallback text.
+    -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap"
+    />
+
+    {
+      jsonLd.map((block) => (
+        <script type="application/ld+json" set:html={JSON.stringify(block)} />
+      ))
+    }
+  </head>
+
+  <body class={bodyClass}>
+    <div class="stage-wash" aria-hidden="true"></div>
+    <slot />
+
+    <script>
+      // Marks the document as scripted so CSS can opt into the reveal
+      // animation. Without this the content is visible by default, which is
+      // the correct no-JS behaviour.
+      document.documentElement.classList.add('js');
+
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const targets = document.querySelectorAll<HTMLElement>('.reveal');
+
+      if (prefersReducedMotion || !('IntersectionObserver' in window)) {
+        targets.forEach((el) => el.classList.add('is-revealed'));
+      } else {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('is-revealed');
+                observer.unobserve(entry.target);
+              }
+            }
+          },
+          { rootMargin: '0px 0px -8% 0px', threshold: 0.05 },
+        );
+        targets.forEach((el) => observer.observe(el));
+      }
+    </script>
+  </body>
+</html>

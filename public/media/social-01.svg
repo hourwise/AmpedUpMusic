@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800" role="presentation">
+  <defs>
+    <radialGradient id="key-voltage-crowd" cx="50%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#E8FF3A" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#FF3B6B" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#12121A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="floor-voltage-crowd" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#12121A" stop-opacity="0"/>
+      <stop offset="70%" stop-color="#000" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.9"/>
+    </linearGradient>
+    
+  <filter id="grain-voltage-crowd" x="0" y="0" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" stitchTiles="stitch" seed="7"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  </defs>
+  <rect width="800" height="800" fill="#12121A"/>
+  <rect x="0" y="496" width="800" height="304" fill="#000" opacity="0.55"/><circle cx="465.8" cy="755.8" r="18.6" fill="#000" opacity="0.85"/><circle cx="602.5" cy="699.0" r="20.5" fill="#000" opacity="0.85"/><circle cx="39.2" cy="665.4" r="15.3" fill="#000" opacity="0.85"/><rect x="35.4" y="588.7" width="7.7"
+          height="61.3" rx="3.8" fill="#000" opacity="0.8"/><circle cx="568.3" cy="676.1" r="20.3" fill="#000" opacity="0.85"/><circle cx="83.7" cy="746.4" r="22.9" fill="#000" opacity="0.85"/><rect x="77.9" y="632.0" width="11.4"
+          height="91.5" rx="5.7" fill="#000" opacity="0.8"/><circle cx="361.0" cy="745.2" r="15.9" fill="#000" opacity="0.85"/><circle cx="612.9" cy="739.9" r="23.6" fill="#000" opacity="0.85"/><circle cx="269.6" cy="632.1" r="20.1" fill="#000" opacity="0.85"/><circle cx="404.0" cy="663.1" r="21.4" fill="#000" opacity="0.85"/><circle cx="2.2" cy="703.9" r="19.3" fill="#000" opacity="0.85"/><circle cx="561.6" cy="741.0" r="22.4" fill="#000" opacity="0.85"/><circle cx="668.7" cy="756.2" r="17.6" fill="#000" opacity="0.85"/><circle cx="677.2" cy="626.5" r="16.0" fill="#000" opacity="0.85"/><circle cx="20.5" cy="758.9" r="14.5" fill="#000" opacity="0.85"/><circle cx="260.4" cy="729.6" r="19.7" fill="#000" opacity="0.85"/><circle cx="645.5" cy="713.3" r="19.6" fill="#000" opacity="0.85"/><circle cx="215.5" cy="753.6" r="13.7" fill="#000" opacity="0.85"/><rect x="212.1" y="685.1" width="6.8"
+          height="54.8" rx="3.4" fill="#000" opacity="0.8"/><circle cx="191.3" cy="655.9" r="21.9" fill="#000" opacity="0.85"/><circle cx="57.4" cy="645.2" r="13.1" fill="#000" opacity="0.85"/><circle cx="434.2" cy="685.0" r="23.9" fill="#000" opacity="0.85"/><circle cx="283.9" cy="683.9" r="19.9" fill="#000" opacity="0.85"/><circle cx="605.7" cy="743.5" r="17.6" fill="#000" opacity="0.85"/><circle cx="545.7" cy="734.0" r="18.7" fill="#000" opacity="0.85"/><circle cx="389.0" cy="657.8" r="17.5" fill="#000" opacity="0.85"/><circle cx="263.4" cy="665.7" r="18.9" fill="#000" opacity="0.85"/><rect x="258.7" y="571.4" width="9.4"
+          height="75.4" rx="4.7" fill="#000" opacity="0.8"/><circle cx="659.1" cy="638.2" r="19.5" fill="#000" opacity="0.85"/><rect x="654.3" y="540.8" width="9.7"
+          height="77.9" rx="4.9" fill="#000" opacity="0.8"/><circle cx="467.9" cy="641.9" r="19.5" fill="#000" opacity="0.85"/><circle cx="665.1" cy="691.0" r="20.3" fill="#000" opacity="0.85"/><rect x="660.0" y="589.5" width="10.1"
+          height="81.2" rx="5.1" fill="#000" opacity="0.8"/><circle cx="514.8" cy="672.5" r="22.5" fill="#000" opacity="0.85"/><circle cx="365.7" cy="754.2" r="13.6" fill="#000" opacity="0.85"/><circle cx="566.4" cy="633.8" r="18.5" fill="#000" opacity="0.85"/><circle cx="430.8" cy="760.9" r="17.8" fill="#000" opacity="0.85"/><circle cx="758.9" cy="711.8" r="23.3" fill="#000" opacity="0.85"/><circle cx="418.9" cy="698.3" r="18.0" fill="#000" opacity="0.85"/><circle cx="175.6" cy="671.8" r="13.8" fill="#000" opacity="0.85"/><rect x="172.1" y="602.5" width="6.9"
+          height="55.4" rx="3.5" fill="#000" opacity="0.8"/><circle cx="507.5" cy="725.1" r="15.4" fill="#000" opacity="0.85"/><circle cx="565.9" cy="661.0" r="22.7" fill="#000" opacity="0.85"/><circle cx="436.9" cy="716.4" r="21.4" fill="#000" opacity="0.85"/><circle cx="611.1" cy="648.5" r="23.3" fill="#000" opacity="0.85"/><circle cx="194.6" cy="689.0" r="14.8" fill="#000" opacity="0.85"/><circle cx="615.7" cy="632.1" r="15.7" fill="#000" opacity="0.85"/><circle cx="273.7" cy="741.8" r="13.3" fill="#000" opacity="0.85"/><circle cx="699.2" cy="725.1" r="13.6" fill="#000" opacity="0.85"/><circle cx="623.0" cy="678.6" r="16.4" fill="#000" opacity="0.85"/><circle cx="341.4" cy="727.8" r="20.6" fill="#000" opacity="0.85"/><circle cx="328.4" cy="711.1" r="16.3" fill="#000" opacity="0.85"/><rect x="324.3" y="629.6" width="8.1"
+          height="65.2" rx="4.1" fill="#000" opacity="0.8"/><ellipse cx="400" cy="528" rx="440.00000000000006" ry="128" fill="#FF3B6B" opacity="0.13"/><ellipse cx="240" cy="416" rx="160" ry="240" fill="#E8FF3A" opacity="0.10"/>
+  <rect width="800" height="800" fill="url(#key-voltage-crowd)"/>
+  <rect width="800" height="800" fill="url(#floor-voltage-crowd)"/>
+  <rect width="100%" height="100%" filter="url(#grain-voltage-crowd)" opacity="0.16" style="mix-blend-mode:overlay"/>
+</svg>

@@ -1,0 +1,124 @@
+---
+/**
+ * A single number the operator cares about.
+ *
+ * Deliberately restrained: there are four of these on the dashboard and no
+ * more. This is a promotion business run by two people, not an analytics
+ * product, and a wall of metrics would bury the one thing that matters -
+ * how many tickets are left for the next gig.
+ */
+interface Props {
+  label: string;
+  value: string | number;
+  /** Small line under the number, e.g. "of 200". */
+  detail?: string;
+  /** 0-100. Renders a progress bar. */
+  percent?: number;
+  tone?: 'default' | 'volt' | 'go' | 'warn' | 'stop';
+  href?: string;
+}
+
+const { label, value, detail, percent, tone = 'default', href } = Astro.props;
+const Tag = href ? 'a' : 'div';
+---
+
+<Tag class:list={['stat', `stat-${tone}`, href && 'stat-link']} href={href}>
+  <p class="stat-label">{label}</p>
+  <p class="stat-value">{value}</p>
+  {detail && <p class="stat-detail">{detail}</p>}
+  {
+    percent !== undefined && (
+      <div
+        class="stat-bar"
+        role="meter"
+        aria-valuenow={Math.round(percent)}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-label={`${label}: ${Math.round(percent)} per cent`}
+      >
+        <span style={`width:${Math.min(100, Math.max(0, percent))}%`}></span>
+      </div>
+    )
+  }
+</Tag>
+
+<style>
+  .stat {
+    --stat-accent: var(--text);
+
+    display: grid;
+    gap: var(--s-1);
+    align-content: start;
+    padding: var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+    text-decoration: none;
+    /* So a long value like a four-figure currency amount can scale itself
+       down inside a narrow card instead of being clipped. */
+    container-type: inline-size;
+  }
+
+  .stat-link {
+    transition: border-color var(--fast) var(--ease);
+  }
+
+  .stat-link:hover {
+    border-color: var(--volt);
+  }
+
+  .stat-volt {
+    --stat-accent: var(--volt);
+  }
+
+  .stat-go {
+    --stat-accent: var(--go);
+  }
+
+  .stat-warn {
+    --stat-accent: var(--warn);
+  }
+
+  .stat-stop {
+    --stat-accent: var(--stop);
+  }
+
+  .stat-label {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    font-weight: 700;
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 80%;
+    font-size: min(var(--step-3), 17cqw);
+    line-height: 1.05;
+    color: var(--stat-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-detail {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .stat-bar {
+    margin-top: var(--s-2);
+    height: 6px;
+    border-radius: var(--r-pill);
+    background: rgb(255 255 255 / 8%);
+    overflow: hidden;
+  }
+
+  .stat-bar span {
+    display: block;
+    height: 100%;
+    background: var(--stat-accent);
+    border-radius: inherit;
+  }
+</style>

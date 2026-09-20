@@ -1,0 +1,273 @@
+---
+/**
+ * Edit an existing promotion.
+ *
+ * Same form as creating, plus the things that only exist once a gig is real:
+ * a sales summary, Duplicate Promotion, and the lifecycle actions.
+ *
+ * Deletion behaviour follows the build plan exactly and is enforced in the UI
+ * as well as (later) the API: a gig with orders against it can never be
+ * deleted, only cancelled or archived. Drafts with nothing attached can be
+ * deleted outright.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import PromotionForm from '@/components/admin/PromotionForm.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import StatusBadge from '@/components/admin/StatusBadge.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+import { plural } from '@/lib/text.ts';
+
+const { id } = Astro.params;
+const services = getServices();
+const event = id ? await services.admin.getById(id) : null;
+
+if (!event) {
+  Astro.response.status = 404;
+}
+
+const [venues, artists, summary] = event
+  ? await Promise.all([
+      services.venues.list(),
+      services.artists.list(),
+      services.admin.salesSummary(event.id),
+    ])
+  : [[], [], null];
+
+const hasOrders = (summary?.sold ?? 0) > 0;
+const canDelete = event?.status === 'draft' && !hasOrders;
+---
+
+{
+  !event || !summary ? (
+    <AdminLayout title="Gig not found" back={{ label: 'All gigs', href: '/admin/gigs' }}>
+      <EmptyState
+        title="That gig does not exist"
+        body="It may have been deleted, or the link may be wrong."
+        actionHref="/admin/gigs"
+        actionLabel="Back to all gigs"
+      />
+    </AdminLayout>
+  ) : (
+    <AdminLayout
+      title={event.title}
+      subtitle={`${event.dateLabel} at ${event.venue.name}`}
+      back={{ label: 'All gigs', href: '/admin/gigs' }}
+    >
+      <div slot="actions" class="head-actions">
+        <StatusBadge kind="event" status={event.status} size="md" />
+        <Button href={event.href} variant="ghost" size="md">View on site</Button>
+        <Button variant="outline" size="md" data-confirm-open="duplicate-confirm">
+          Duplicate
+        </Button>
+      </div>
+
+      {event.status === 'draft' && (
+        <Callout tone="warn" label="Draft" title="This gig is not on the website yet">
+          <p>
+            Nobody can see it and no tickets can be bought. Press Publish at the bottom of the page
+            when you are ready.
+          </p>
+        </Callout>
+      )}
+
+      {(event.status === 'cancelled' || event.status === 'postponed') && (
+        <Callout
+          tone="stop"
+          label={event.status === 'cancelled' ? 'Cancelled' : 'Postponed'}
+          title="Customers are seeing a notice on the gig page"
+        >
+          <p>{event.statusMessage}</p>
+        </Callout>
+      )}
+
+      <section class="summary" aria-label="How this gig is selling">
+        <StatCard
+          label="Sold"
+          value={summary.sold}
+          detail={`of ${summary.capacity} - ${summary.available} left`}
+          percent={summary.percentSold}
+          tone="volt"
+        />
+        <StatCard label="Taken" value={summary.grossLabel} detail="Before costs" tone="go" />
+        <StatCard
+          label="In checkout"
+          value={summary.reserved}
+          detail={summary.reserved > 0 ? 'Being paid for right now' : 'Nothing held'}
+        />
+        <StatCard label="Guest list" value={summary.guestList} detail="Comps and guests" />
+      </section>
+
+      <PromotionForm event={event} venues={venues} artists={artists} />
+
+      <section class="danger" aria-labelledby="danger-heading">
+        <h2 class="display display-sm" id="danger-heading">Changing or stopping this gig</h2>
+        <p class="danger-intro">
+          If something goes wrong with a date, use these rather than deleting anything. Ticket
+          holders keep their tickets and we can email them all at once.
+        </p>
+
+        <div class="danger-grid">
+          <div class="danger-card">
+            <h3>Postpone</h3>
+            <p>
+              The gig page shows a postponed notice. Tickets stay valid. You can email everyone who
+              has a ticket.
+            </p>
+            <Button variant="outline" size="md" data-confirm-open="postpone-confirm">
+              Postpone this gig
+            </Button>
+          </div>
+
+          <div class="danger-card">
+            <h3>Cancel</h3>
+            <p>
+              Sales stop, the gig page shows a cancelled notice, and you can email everyone who has
+              a ticket. Refunds are done in SumUp and then marked off here.
+            </p>
+            <Button variant="danger" size="md" data-confirm-open="cancel-confirm">
+              Cancel this gig
+            </Button>
+          </div>
+
+          <div class="danger-card">
+            <h3>{canDelete ? 'Delete draft' : 'Delete'}</h3>
+            <p>
+              {canDelete
+                ? 'This is a draft with no orders against it, so it can be deleted outright.'
+                : `This gig has ${summary.sold} ${plural(summary.sold, 'ticket')} sold, so it can never be deleted. Cancel or archive it instead.`}
+            </p>
+            <Button variant="danger" size="md" inert={!canDelete} data-confirm-open="delete-confirm">
+              Delete
+            </Button>
+          </div>
+        </div>
+
+        <ScaffoldNote slice="AMPED-10C">
+          None of these actions are connected. In V1 each one changes the event status, records who
+          did it in the audit log, and offers to email every ticket holder exactly once.
+        </ScaffoldNote>
+      </section>
+
+      <ConfirmDialog
+        id="duplicate-confirm"
+        tone="volt"
+        title="Duplicate this promotion?"
+        body="Copies the venue, line-up, ticket types, prices, artwork and social links into a brand new draft. Orders, tickets and dates are not copied - you just set the new date."
+        confirmLabel="Make a copy"
+        cancelLabel="Cancel"
+      />
+
+      <ConfirmDialog
+        id="postpone-confirm"
+        tone="volt"
+        title="Postpone this gig?"
+        body="The gig page will show a postponed notice and sales will stop. Tickets stay valid for the new date."
+        consequence={
+          summary.sold > 0
+            ? `${summary.sold} ticket ${plural(summary.sold, 'holder')} will be offered an email.`
+            : undefined
+        }
+        confirmLabel="Postpone"
+        cancelLabel="Not yet"
+      />
+
+      <ConfirmDialog
+        id="cancel-confirm"
+        title="Cancel this gig?"
+        body="Sales stop immediately and the gig page shows a cancellation notice. This cannot be undone from here."
+        consequence={
+          summary.sold > 0
+            ? `${summary.sold} ${plural(summary.sold, 'ticket')} have been sold, worth ${summary.grossLabel}. Everyone will need refunding in SumUp.`
+            : undefined
+        }
+        confirmLabel="Cancel the gig"
+        cancelLabel="Keep it on"
+      />
+
+      <ConfirmDialog
+        id="delete-confirm"
+        title="Delete this draft?"
+        body="The draft and everything in it will be removed. This cannot be undone."
+        confirmLabel="Delete it"
+        cancelLabel="Keep it"
+      />
+    </AdminLayout>
+  )
+}
+
+<style>
+  .head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+  }
+
+  .summary {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 52rem) {
+    .summary {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .danger {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+    border: 1px solid color-mix(in srgb, var(--stop) 30%, transparent);
+    border-radius: var(--r-lg);
+    background: color-mix(in srgb, var(--stop) 4%, transparent);
+  }
+
+  .danger-intro {
+    font-size: var(--step--1);
+    color: var(--text-muted);
+    max-width: 62ch;
+  }
+
+  .danger-grid {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  @media (min-width: 52rem) {
+    .danger-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .danger-card {
+    display: grid;
+    gap: var(--s-3);
+    align-content: start;
+    padding: var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .danger-card h3 {
+    font-family: var(--font-display);
+    font-size: var(--step-0);
+    font-weight: 800;
+  }
+
+  .danger-card p {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .danger-card :global(.btn) {
+    justify-self: start;
+  }
+</style>

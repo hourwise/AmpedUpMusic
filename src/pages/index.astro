@@ -1,0 +1,323 @@
+---
+/**
+ * Homepage.
+ *
+ * Hierarchy is deliberate and follows the commercial question order: what is
+ * on next, can I buy a ticket for it, what else is coming, what does an Amped
+ * Up night actually look like, who are we, tell me when the next one goes on
+ * sale.
+ *
+ * Everything is derived from the event records. There is no separately
+ * maintained "featured gig" - when the next gig passes, the homepage changes
+ * on its own, which is the whole point of the operating model.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import EventHero from '@/components/events/EventHero.astro';
+import EventCard from '@/components/events/EventCard.astro';
+import Section from '@/components/ui/Section.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import SocialStrip from '@/components/site/SocialStrip.astro';
+import { getServices } from '@/services/index.ts';
+import { organizationJsonLd } from '@/lib/seo.ts';
+import { SITE } from '@/lib/site.ts';
+
+const services = getServices();
+
+const [next, upcoming, past, social, galleryPreview] = await Promise.all([
+  services.events.nextEvent(),
+  services.events.listUpcoming(7),
+  services.events.listPast(3),
+  services.social.listFeatured(4),
+  services.media.listGallery(6),
+]);
+
+/** The hero already shows the next gig, so the grid starts after it. */
+const rest = upcoming.filter((event) => event.id !== next?.id).slice(0, 6);
+const isDisrupted = next?.status === 'cancelled' || next?.status === 'postponed';
+
+const description = next
+  ? `Next up: ${next.title} at ${next.venue.name}, ${next.dateLabel}. ${SITE.description}`
+  : SITE.description;
+---
+
+<SiteLayout
+  description={description}
+  image={next?.posterUrl ?? '/media/og-default.svg'}
+  imageAlt={next?.posterAlt ?? SITE.name}
+  flush
+  jsonLd={[organizationJsonLd()]}
+>
+  {
+    next ? (
+      <>
+        <EventHero event={next} variant="home" />
+        {isDisrupted && next.statusMessage && (
+          <div class="container-wide home-notice">
+            <Callout
+              tone="stop"
+              label={next.status === 'cancelled' ? 'Cancelled' : 'Postponed'}
+              title={next.title}
+            >
+              <p>{next.statusMessage}</p>
+            </Callout>
+          </div>
+        )}
+      </>
+    ) : (
+      <div class="container home-empty">
+        <EmptyState
+          title="Nothing in the diary just yet"
+          body="We are between announcements. Join the gig alerts list and you will hear about the next one before it goes public."
+          actionHref="/contact"
+          actionLabel="Get in touch"
+        />
+      </div>
+    )
+  }
+
+  <Section
+    eyebrow="On sale now"
+    heading="Upcoming gigs"
+    intro="Every Amped Up night currently announced, soonest first."
+    actionHref="/gigs"
+    actionLabel="All gigs"
+    wide
+    id="upcoming"
+  >
+    {
+      rest.length > 0 ? (
+        <div class="grid-cards reveal">
+          {rest.map((event, index) => (
+            <EventCard event={event} priority={index < 2} />
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          title="That is the lot for now"
+          body="The next gig above is the only date currently announced. More are being confirmed."
+          actionHref="/promote-with-us"
+          actionLabel="Play for us"
+        />
+      )
+    }
+  </Section>
+
+  <Section
+    eyebrow="What it looks like"
+    heading="In the room"
+    intro={SITE.photographyPartner.blurb}
+    actionHref="/gallery"
+    actionLabel="Full gallery"
+    wide
+    tight
+  >
+    <ul class="home-gallery reveal">
+      {
+        galleryPreview.map((asset, index) => (
+          <li>
+            <a href="/gallery">
+              <img src={asset.url} alt={asset.alt} loading={index < 2 ? 'eager' : 'lazy'} decoding="async" />
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
+  {
+    past.length > 0 && (
+      <Section
+        eyebrow="Archive"
+        heading="Recently at Amped Up"
+        intro="Gigs that have already happened, with the photographs."
+        actionHref="/past-gigs"
+        actionLabel="Past gigs"
+        wide
+        tight
+      >
+        <div class="grid-cards reveal">
+          {past.map((event) => (
+            <EventCard event={event} hideCta />
+          ))}
+        </div>
+      </Section>
+    )
+  }
+
+  {
+    social.length > 0 && (
+      <Section eyebrow="Socials" heading="From the feed" wide tight>
+        <div class="reveal">
+          <SocialStrip posts={social} />
+        </div>
+      </Section>
+    )
+  }
+
+  <Section wide tight>
+    <div class="home-about surface reveal">
+      <div class="home-about-text">
+        <p class="eyebrow eyebrow-accent">Who we are</p>
+        <h2 class="display display-md">
+          Two people, a PA and a diary full of Friday nights
+        </h2>
+        <p class="lede">
+          Amped Up Music Promotions puts on independent live music across {SITE.region}. We book the
+          bands, hire the room, print the posters, sell the tickets and stand on the door. No agency,
+          no middle layer, no surprise fees at checkout.
+        </p>
+        <div class="home-about-actions">
+          <Button href="/about" variant="outline" size="md">About us</Button>
+          <Button href="/promote-with-us" variant="ghost" size="md">Play for us</Button>
+        </div>
+      </div>
+
+      <dl class="home-stats">
+        <div>
+          <dt>Gigs promoted</dt>
+          <dd>64</dd>
+        </div>
+        <div>
+          <dt>Bands put on</dt>
+          <dd>112</dd>
+        </div>
+        <div>
+          <dt>Venues</dt>
+          <dd>4</dd>
+        </div>
+        <div>
+          <dt>Booking fees</dt>
+          <dd>None</dd>
+        </div>
+      </dl>
+    </div>
+  </Section>
+
+  <Section wide tight>
+    <div class="home-alerts reveal">
+      <div>
+        <p class="eyebrow eyebrow-accent">Gig alerts</p>
+        <h2 class="display display-md">Hear first, before they sell out</h2>
+        <p class="lede">
+          One email when a new gig goes on sale. That is all it is for. Unsubscribe in one click.
+        </p>
+      </div>
+      <Button href="#footer-email" variant="volt" size="lg">Join the list</Button>
+    </div>
+  </Section>
+</SiteLayout>
+
+<style>
+  .home-notice {
+    margin-top: calc(var(--s-6) * -1);
+    margin-bottom: var(--s-6);
+  }
+
+  .home-empty {
+    padding-top: calc(var(--header-h) + var(--s-8));
+  }
+
+  .home-gallery {
+    display: grid;
+    gap: var(--s-2);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-gallery a {
+    display: block;
+    border-radius: var(--r);
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+  }
+
+  .home-gallery img {
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    object-fit: cover;
+    transition: transform var(--slow) var(--ease-out);
+  }
+
+  .home-gallery a:hover img {
+    transform: scale(1.04);
+  }
+
+  @media (min-width: 48rem) {
+    .home-gallery {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .home-about {
+    display: grid;
+    gap: var(--s-6);
+    padding: var(--s-6);
+  }
+
+  .home-about-text {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  .home-about-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
+  }
+
+  .home-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  .home-stats dt {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .home-stats dd {
+    margin: 0.1em 0 0;
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 78%;
+    font-size: var(--step-3);
+    line-height: 1;
+    color: var(--volt);
+  }
+
+  @media (min-width: 56rem) {
+    .home-about {
+      grid-template-columns: 1.6fr 1fr;
+      gap: var(--s-8);
+      padding: var(--s-8);
+      align-items: center;
+    }
+  }
+
+  .home-alerts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-5);
+    padding: var(--s-6);
+    border-radius: var(--r-lg);
+    border: 1px solid color-mix(in srgb, var(--volt) 28%, transparent);
+    background:
+      radial-gradient(40rem 20rem at 10% 0%, rgb(232 255 58 / 10%), transparent 70%),
+      var(--ink-raised);
+  }
+
+  .home-alerts > div {
+    display: grid;
+    gap: var(--s-2);
+    max-width: 44ch;
+  }
+</style>

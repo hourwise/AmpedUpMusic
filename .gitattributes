@@ -1,0 +1,16 @@
+# Normalise line endings so that agents and developers on different platforms
+# do not produce whole-file diffs. Text is stored LF in the repository and
+# checked out natively.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Generated. Review the summary, not the diff.
+package-lock.json linguist-generated=true -diff

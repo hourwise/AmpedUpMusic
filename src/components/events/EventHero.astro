@@ -1,0 +1,290 @@
+---
+/**
+ * Event hero.
+ *
+ * Answers the six questions a customer arriving from a social post needs
+ * answered before they scroll: what, when, where, who, how much, how do I buy.
+ * The poster sits beside the detail on desktop and above it on a phone, and
+ * the primary ticket action is never below the fold on either.
+ *
+ * `variant="home"` is the homepage next-gig treatment, which is the same
+ * object turned up: bigger type, the hero photograph behind it, and a
+ * countdown-flavoured relative date.
+ */
+import AvailabilityBadge from './AvailabilityBadge.astro';
+import PosterImage from './PosterImage.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Button from '@/components/ui/Button.astro';
+import { machineDate, relativeDayLabel } from '@/lib/dates.ts';
+import { AGE_RESTRICTION_SHORT } from '@/lib/text.ts';
+import type { EventView } from '@/types/view.ts';
+
+interface Props {
+  event: EventView;
+  variant?: 'event' | 'home';
+  /** Where the ticket CTA goes. Defaults to the ticket panel on this page. */
+  ctaHref?: string;
+}
+
+const { event, variant = 'event', ctaHref } = Astro.props;
+
+const relative = event.isPast ? null : relativeDayLabel(event.startsAt);
+const isDisrupted = event.status === 'cancelled' || event.status === 'postponed';
+const headline = event.lineup[0];
+const support = event.lineup.slice(1);
+const primaryHref = ctaHref ?? (variant === 'home' ? event.href : '#tickets');
+const ctaLabel = event.onSale ? 'Buy tickets' : variant === 'home' ? 'See the gig' : 'Ticket info';
+---
+
+<section class:list={['hero', `hero-${variant}`]} aria-labelledby="hero-title">
+  {
+    event.heroUrl && (
+      <div class="hero-bg" aria-hidden="true">
+        <img src={event.heroUrl} alt="" loading="eager" decoding="sync" fetchpriority="high" />
+      </div>
+    )
+  }
+
+  <div class="hero-inner container-wide">
+    <div class="hero-poster">
+      <PosterImage src={event.posterUrl} alt={event.posterAlt} title={event.title} priority />
+    </div>
+
+    <div class="hero-detail">
+      <p class="hero-eyebrow eyebrow">
+        {variant === 'home' ? 'Next gig' : (event.strapline ?? 'Amped Up presents')}
+        {relative && <span class="hero-relative">{relative}</span>}
+      </p>
+
+      <h1 class="hero-title display" id="hero-title">{event.title}</h1>
+
+      {
+        support.length > 0 && (
+          <p class="hero-support">
+            with {support.map((entry) => entry.artist.name).join(' + ')}
+          </p>
+        )
+      }
+
+      <dl class="hero-facts">
+        <div class="hero-fact">
+          <dt>Date</dt>
+          <dd><time datetime={machineDate(event.startsAt)}>{event.dateLabel}</time></dd>
+        </div>
+        <div class="hero-fact">
+          <dt>Venue</dt>
+          <dd>{event.venue.name}, {event.venue.city}</dd>
+        </div>
+        <div class="hero-fact">
+          <dt>Doors</dt>
+          <dd>{event.doorsLabel}</dd>
+        </div>
+        <div class="hero-fact">
+          <dt>Age</dt>
+          <dd>{AGE_RESTRICTION_SHORT[event.ageRestriction]}</dd>
+        </div>
+      </dl>
+
+      <div class="hero-actions">
+        {
+          isDisrupted ? (
+            <Badge tone="stop" size="md" dot>
+              {event.status === 'cancelled' ? 'Cancelled' : 'Postponed'}
+            </Badge>
+          ) : (
+            <>
+              <Button
+                href={primaryHref}
+                variant={event.onSale ? 'volt' : 'outline'}
+                size="xl"
+                inert={!event.onSale && variant !== 'home'}
+              >
+                {ctaLabel}
+              </Button>
+              <div class="hero-price-line">
+                {event.priceFromLabel && (
+                  <span class="hero-price">
+                    <span class="hero-price-from">from</span> {event.priceFromLabel}
+                  </span>
+                )}
+                <AvailabilityBadge state={event.availability} long />
+              </div>
+            </>
+          )
+        }
+      </div>
+
+      {
+        headline?.setTime && !event.isPast && (
+          <p class="hero-stage-time">
+            {headline.artist.name} on stage at {event.startsLabel}
+          </p>
+        )
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    isolation: isolate;
+    padding-top: calc(var(--header-h) + var(--s-6));
+    padding-bottom: var(--s-8);
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+  }
+
+  .hero-bg img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.5;
+  }
+
+  /*
+   * A two-stop scrim rather than one flat overlay: dark enough behind the type
+   * for contrast, clear enough at the top that the photograph still reads.
+   */
+  .hero-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgb(8 8 11 / 72%) 0%, rgb(8 8 11 / 55%) 30%, rgb(8 8 11 / 96%) 88%),
+      linear-gradient(90deg, rgb(8 8 11 / 80%) 0%, transparent 65%);
+  }
+
+  .hero-inner {
+    display: grid;
+    gap: var(--s-5);
+  }
+
+  .hero-poster {
+    width: min(16rem, 62%);
+  }
+
+  .hero-detail {
+    display: grid;
+    gap: var(--s-4);
+    align-content: start;
+  }
+
+  .hero-eyebrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    align-items: baseline;
+    color: var(--volt);
+  }
+
+  .hero-relative {
+    color: var(--text-muted);
+    text-transform: none;
+    letter-spacing: 0.04em;
+  }
+
+  .hero-title {
+    font-size: var(--step-4);
+    font-stretch: 76%;
+    font-variation-settings: 'wdth' 76, 'wght' 900;
+    font-weight: 900;
+    text-transform: uppercase;
+    max-width: 16ch;
+  }
+
+  .hero-home .hero-title {
+    font-size: var(--step-5);
+  }
+
+  .hero-support {
+    font-size: var(--step-1);
+    color: var(--text-muted);
+    max-width: 40ch;
+  }
+
+  .hero-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-4);
+    max-width: 34rem;
+    padding: var(--s-4) 0;
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .hero-fact dt {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .hero-fact dd {
+    margin: 0.25em 0 0;
+    font-weight: 600;
+    font-size: var(--step-0);
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-4);
+  }
+
+  .hero-price-line {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    flex-wrap: wrap;
+  }
+
+  .hero-price {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step-2);
+  }
+
+  .hero-price-from {
+    font-size: var(--step--2);
+    font-weight: 600;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .hero-stage-time {
+    font-size: var(--step--1);
+    color: var(--text-faint);
+  }
+
+  @media (min-width: 48rem) {
+    .hero-facts {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .hero {
+      padding-top: calc(var(--header-h) + var(--s-8));
+      padding-bottom: var(--s-9);
+    }
+
+    .hero-inner {
+      grid-template-columns: minmax(0, 20rem) minmax(0, 1fr);
+      gap: var(--s-7);
+      align-items: center;
+    }
+
+    .hero-poster {
+      width: 100%;
+    }
+  }
+</style>

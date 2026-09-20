@@ -1,0 +1,228 @@
+---
+/**
+ * Gig alerts mailing list.
+ *
+ * Consent evidence is shown as a first-class column rather than buried, because
+ * under UK GDPR "where and when did they agree" is the only answer that matters
+ * if anybody ever asks. Unsubscribes are kept as suppression records, never
+ * deleted, so somebody who opts out cannot be re-added by accident.
+ *
+ * There is no "compose a campaign" screen in V1. Sending is deliberately out of
+ * scope until AMPED-10B, and even then it is one job: tell the list a new gig is
+ * on sale.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Button from '@/components/ui/Button.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import Callout from '@/components/ui/Callout.astro';
+import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getServices } from '@/services/index.ts';
+
+const services = getServices();
+const [subscribers, counts, growth] = await Promise.all([
+  services.mailingList.list(),
+  services.mailingList.counts(),
+  services.mailingList.growth(),
+]);
+
+const peak = Math.max(1, ...growth.map((point) => point.count));
+const gained = growth.length >= 2
+  ? (growth.at(-1)?.count ?? 0) - (growth.at(-2)?.count ?? 0)
+  : 0;
+
+const STATUS_TONE = {
+  subscribed: 'go',
+  unsubscribed: 'muted',
+  bounced: 'warn',
+  pending: 'neutral',
+} as const;
+
+const SOURCE_LABEL: Record<string, string> = {
+  checkout: 'Ticked the box at checkout',
+  'homepage-footer': 'Signed up in the footer',
+  'gig-page': 'Signed up on a gig page',
+  'door-signup': 'Signed up on the door',
+};
+---
+
+<AdminLayout
+  title="Gig alerts"
+  subtitle="People who asked to hear when a new gig goes on sale."
+  wide
+>
+  <div class="ml-stats">
+    <StatCard label="Subscribed" value={counts.subscribed} tone="volt" detail="Will receive alerts" />
+    <StatCard
+      label="Added this month"
+      value={gained > 0 ? `+${gained}` : String(gained)}
+      tone={gained > 0 ? 'go' : 'default'}
+      detail="Against last month"
+    />
+    <StatCard label="Unsubscribed" value={counts.unsubscribed} detail="Kept as suppressions" />
+    <StatCard
+      label="Bouncing"
+      value={counts.bounced}
+      tone={counts.bounced > 0 ? 'warn' : 'default'}
+      detail="Address not accepting mail"
+    />
+  </div>
+
+  <section class="growth surface" aria-labelledby="growth-heading">
+    <h2 class="display display-sm" id="growth-heading">How the list is growing</h2>
+    <ul class="bars">
+      {
+        growth.map((point) => (
+          <li class="bar">
+            <span class="bar-value">{point.count}</span>
+            <span class="bar-track">
+              <span class="bar-fill" style={`height:${Math.round((point.count / peak) * 100)}%`} />
+            </span>
+            <span class="bar-label">{point.label}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <p class="growth-note">
+      Total subscribers at the end of each month. Most sign-ups come from the box at checkout.
+    </p>
+  </section>
+
+  <Callout tone="info" label="Before you send" title="One list, one purpose">
+    <p>
+      People joined this list to be told when a gig goes on sale. Sending anything else is both bad
+      manners and a compliance problem. Every email carries a one-click unsubscribe, and anyone who
+      uses it stays on the suppression list permanently.
+    </p>
+  </Callout>
+
+  {
+    subscribers.length > 0 ? (
+      <DataTable caption="Gig alerts subscribers, newest first">
+        <thead>
+          <tr>
+            <th scope="col">Email</th>
+            <th scope="col">Name</th>
+            <th scope="col">Status</th>
+            <th scope="col">How they joined</th>
+            <th scope="col">When</th>
+          </tr>
+        </thead>
+        <tbody>
+          {subscribers.map(({ subscriber, joinedLabel }) => (
+            <tr>
+              <td>{subscriber.email}</td>
+              <td class="dim">{subscriber.name ?? '-'}</td>
+              <td>
+                <Badge tone={STATUS_TONE[subscriber.status]} size="sm" dot>
+                  {subscriber.status}
+                </Badge>
+              </td>
+              <td class="dim">
+                {SOURCE_LABEL[subscriber.consentSource] ?? subscriber.consentSource}
+              </td>
+              <td class="dim mono">{joinedLabel}</td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    ) : (
+      <EmptyState
+        title="Nobody on the list yet"
+        body="People join from the footer, from gig pages and from the box at checkout."
+      />
+    )
+  }
+
+  <div class="ml-actions">
+    <Button variant="outline" size="md">Export as CSV</Button>
+  </div>
+
+  <ScaffoldNote slice="AMPED-10B">
+    The list is demonstration data and nothing can be sent. This slice adds the public sign-up
+    endpoint with Turnstile, double opt-in if we decide we want it, the unsubscribe route, the
+    suppression list, and a single "tell the list about this gig" action on the gig page.
+  </ScaffoldNote>
+</AdminLayout>
+
+<style>
+  .ml-stats {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 52rem) {
+    .ml-stats {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .growth {
+    display: grid;
+    gap: var(--s-4);
+    padding: var(--s-5);
+  }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--s-3);
+    height: 11rem;
+  }
+
+  .bar {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: var(--s-2);
+    justify-items: center;
+    height: 100%;
+  }
+
+  .bar-value {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: var(--step--2);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar-track {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    max-width: 3.5rem;
+    height: 100%;
+    border-radius: var(--r-sm);
+    background: rgb(255 255 255 / 5%);
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    display: block;
+    width: 100%;
+    background: linear-gradient(180deg, var(--volt), color-mix(in srgb, var(--volt) 45%, transparent));
+    border-radius: var(--r-sm);
+  }
+
+  .bar-label {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .growth-note {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .ml-actions {
+    display: flex;
+    gap: var(--s-3);
+  }
+</style>

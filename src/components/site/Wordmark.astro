@@ -1,0 +1,141 @@
+---
+/**
+ * The Amped Up wordmark.
+ *
+ * Type-led rather than a drawn logo: a condensed lockup with a small
+ * level-meter glyph standing in for the amplifier. It scales cleanly, needs no
+ * image request, and can be recoloured by context.
+ */
+interface Props {
+  size?: 'sm' | 'md';
+  /** Renders as a link to the homepage. */
+  href?: string;
+  class?: string;
+}
+
+const { size = 'md', href, class: className = '' } = Astro.props;
+const Tag = href ? 'a' : 'span';
+---
+
+<Tag class:list={['wordmark', `wordmark-${size}`, className]} href={href}>
+  <span class="wordmark-meter" aria-hidden="true">
+    <i></i><i></i><i></i><i></i>
+  </span>
+  <span class="wordmark-text">
+    <span class="wordmark-line-1">Amped Up</span>
+    <span class="wordmark-line-2">Music Promotions</span>
+  </span>
+</Tag>
+
+<style>
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6em;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .wordmark-meter {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 1.35em;
+    flex: none;
+  }
+
+  .wordmark-meter i {
+    display: block;
+    width: 3px;
+    border-radius: 1px;
+    background: var(--volt);
+  }
+
+  .wordmark-meter i:nth-child(1) {
+    height: 45%;
+  }
+
+  .wordmark-meter i:nth-child(2) {
+    height: 100%;
+  }
+
+  .wordmark-meter i:nth-child(3) {
+    height: 68%;
+  }
+
+  .wordmark-meter i:nth-child(4) {
+    height: 30%;
+    background: var(--stage-pink);
+  }
+
+  /*
+   * The meter bars move very slightly on hover. Decorative only, disabled for
+   * reduced motion, and never animating on load so it cannot distract while
+   * someone is reading.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    .wordmark:hover .wordmark-meter i {
+      animation: meter 900ms var(--ease) infinite alternate;
+    }
+
+    .wordmark:hover .wordmark-meter i:nth-child(2) {
+      animation-delay: 120ms;
+    }
+
+    .wordmark:hover .wordmark-meter i:nth-child(3) {
+      animation-delay: 240ms;
+    }
+
+    .wordmark:hover .wordmark-meter i:nth-child(4) {
+      animation-delay: 60ms;
+    }
+  }
+
+  @keyframes meter {
+    from {
+      transform: scaleY(0.75);
+      transform-origin: bottom;
+    }
+
+    to {
+      transform: scaleY(1.15);
+      transform-origin: bottom;
+    }
+  }
+
+  .wordmark-text {
+    display: grid;
+    line-height: 1;
+  }
+
+  .wordmark-line-1 {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-stretch: 74%;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+    font-size: 1.15rem;
+  }
+
+  .wordmark-line-2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.56rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-top: 0.25em;
+  }
+
+  .wordmark-md .wordmark-line-1 {
+    font-size: 1.35rem;
+  }
+
+  .wordmark-md .wordmark-line-2 {
+    font-size: 0.6rem;
+  }
+
+  .wordmark:hover .wordmark-line-2 {
+    color: var(--text-muted);
+  }
+</style>

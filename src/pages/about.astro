@@ -1,0 +1,155 @@
+---
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Button from '@/components/ui/Button.astro';
+import Section from '@/components/ui/Section.astro';
+import { getServices } from '@/services/index.ts';
+import { SITE } from '@/lib/site.ts';
+import { breadcrumbJsonLd } from '@/lib/seo.ts';
+
+// Not prerendered: it reads the venue directory, which comes from D1 from
+// AMPED-02B onwards and is not available at build time.
+const venues = await getServices().venues.list();
+---
+
+<SiteLayout
+  title="About"
+  description={`Who Amped Up Music Promotions are, how we work, and the rooms we put gigs on in across ${SITE.region}.`}
+  jsonLd={[
+    breadcrumbJsonLd([
+      { label: 'Home', href: '/' },
+      { label: 'About', href: '/about' },
+    ]),
+  ]}
+>
+  <PageHeader
+    eyebrow="Who we are"
+    title="Amped Up Music Promotions"
+    intro={`Independent live music promotion across ${SITE.region}. Two of us, four regular rooms, and a diary that fills up on Friday and Saturday nights.`}
+    trail={[{ label: 'Home', href: '/' }]}
+  />
+
+  <div class="container about-body">
+    <div class="prose">
+      <p>
+        We started Amped Up because the bands we wanted to see were not getting put on anywhere
+        near us, and the places that did put them on charged eight pounds for a ticket and then
+        another two pounds to sell it to you. So we booked a room, printed some posters and did it
+        ourselves.
+      </p>
+
+      <h2>How we work</h2>
+      <p>
+        We book the band, hire the room, sort the PA, print the posters, sell the tickets and stand
+        on the door. There is no agency in the middle and no third-party ticketing company taking a
+        cut. That is why there are no booking fees on this site: the price on the gig page is the
+        price you pay, and all of it goes into the night.
+      </p>
+      <p>
+        Every gig is photographed by <a href={SITE.photographyPartner.url} rel="noopener">
+          {SITE.photographyPartner.name}</a
+        >, and the galleries go up within a week so the bands have something to use.
+      </p>
+
+      <h2>What we book</h2>
+      <p>
+        Guitar bands, electronic acts, soul revues, folk, punk and whatever else turns up and is
+        good. We are more interested in whether a band can hold a room than in what genre they
+        belong to. We put on all-ages shows wherever the venue licence allows it, because a 16 year
+        old who cannot get into a gig becomes a 25 year old who does not go to them.
+      </p>
+
+      <h2>Accessibility</h2>
+      <p>
+        We are honest about the rooms we use. One of them is down twelve steps with no lift, and we
+        say so on the page rather than burying it. Where a venue is step-free we say that too, and
+        we hold accessible viewing positions at every show in the rooms that have them. Personal
+        assistants come in free of charge.
+      </p>
+      <p>
+        Full details are on the <a href="/accessibility">accessibility page</a>, and every event
+        page carries the information for that specific room.
+      </p>
+    </div>
+
+    <div class="about-actions">
+      <Button href="/promote-with-us" variant="volt" size="lg">Play for us</Button>
+      <Button href="/contact" variant="outline" size="lg">Get in touch</Button>
+    </div>
+  </div>
+
+  <Section eyebrow="Where we put gigs on" heading="The rooms" wide tight>
+    <ul class="venues">
+      {
+        venues.map((venue) => (
+          <li class="venue-item surface">
+            <h3 class="display display-sm">{venue.name}</h3>
+            <p class="venue-place">
+              {venue.city}
+              {venue.capacity && <span class="venue-cap">Capacity {venue.capacity}</span>}
+            </p>
+            {venue.standardNotes && <p class="venue-note">{venue.standardNotes}</p>}
+            {venue.accessibilityInfo && (
+              <p class="venue-access">
+                <span class="eyebrow eyebrow-accent">Access</span>
+                {venue.accessibilityInfo}
+              </p>
+            )}
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+</SiteLayout>
+
+<style>
+  .about-body {
+    display: grid;
+    gap: var(--s-6);
+    padding-bottom: var(--s-6);
+  }
+
+  .about-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+  }
+
+  .venues {
+    display: grid;
+    gap: var(--s-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  }
+
+  .venue-item {
+    display: grid;
+    gap: var(--s-2);
+    padding: var(--s-5);
+    align-content: start;
+  }
+
+  .venue-place {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    font-size: var(--step--1);
+    color: var(--volt);
+  }
+
+  .venue-cap {
+    color: var(--text-faint);
+  }
+
+  .venue-note,
+  .venue-access {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .venue-access {
+    display: grid;
+    gap: var(--s-1);
+    padding-top: var(--s-3);
+    border-top: 1px solid var(--hairline);
+  }
+</style>
