@@ -7,7 +7,13 @@
 import '@/styles/tokens.css';
 import '@/styles/base.css';
 import { SITE } from '@/lib/site.ts';
-import { absoluteUrl, pageTitle } from '@/lib/seo.ts';
+import {
+  absoluteUrl,
+  DEFAULT_SOCIAL_IMAGE,
+  pageTitle,
+  resolveSocialImage,
+  serializeJsonLd,
+} from '@/lib/seo.ts';
 import type { PageMeta } from '@/lib/seo.ts';
 
 interface Props extends PageMeta {
@@ -22,7 +28,7 @@ interface Props extends PageMeta {
 const {
   title,
   description = SITE.description,
-  image = '/media/og-default.svg',
+  image = DEFAULT_SOCIAL_IMAGE,
   imageAlt = SITE.name,
   canonical,
   type = 'website',
@@ -34,7 +40,7 @@ const {
 
 const resolvedTitle = pageTitle(title);
 const canonicalUrl = canonical ? absoluteUrl(canonical) : absoluteUrl(Astro.url.pathname);
-const imageUrl = absoluteUrl(image);
+const imageUrl = absoluteUrl(resolveSocialImage(image));
 ---
 
 <!doctype html>
@@ -83,7 +89,7 @@ const imageUrl = absoluteUrl(image);
 
     {
       jsonLd.map((block) => (
-        <script type="application/ld+json" set:html={JSON.stringify(block)} />
+        <script type="application/ld+json" set:html={serializeJsonLd(block)} />
       ))
     }
   </head>
