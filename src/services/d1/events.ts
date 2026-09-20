@@ -12,11 +12,14 @@
  *   2. event_artists for the batch
  *   3. artists for those line-ups
  *   4. venues for those events
- *   5. public ticket types for those events
- *   6. tickets sold, grouped by ticket type
- *   7. stock reserved by live awaiting_payment orders, grouped the same way
+ *   5-7. public ticket types, sold and reserved, via ./tickets.ts (AMPED-02D)
  *   8. media referenced by id (posters, heroes, artist portraits)
  *   9. gallery media for those events
+ *
+ * Ticket-type and inventory arithmetic is not duplicated here: AMPED-02D owns
+ * it in ./tickets.ts, and this module only consumes the public projection of
+ * it. The nine-statement budget is unchanged because that service issues the
+ * same three grouped statements this file used to.
  *
  * Rules held here:
  *  - draft and archived rows are excluded in SQL, never fetched-then-filtered;
@@ -32,13 +35,13 @@ import type {
   EventArtistRow,
   EventRow,
   MediaAssetRow,
-  TicketTypeRow,
   VenueRow,
 } from '@/db/schema.ts';
 import type { EventView } from '@/types/view.ts';
 
 import type { PublicEventService } from '../contracts.ts';
 import { projectEvent, toEvent, type ProjectionData } from './project.ts';
+import { createD1TicketInventoryService, type TicketInventoryService } from './tickets.ts';
 
 /**
  * The statuses the public may see at all. Drafts and archives are absent, which
@@ -134,20 +137,6 @@ const MEDIA_COLUMNS = [
   'uploaded_at',
 ].join(', ');
 
-const TICKET_TYPE_COLUMNS = [
-  'id',
-  'event_id',
-  'name',
-  'description',
-  'price_in_pence',
-  'capacity',
-  'max_per_order',
-  'sales_open_at',
-  'sales_close_at',
-  'position',
-  'visibility',
-].join(', ');
-
 /** `json_each(?1)` turns a bound JSON array into an `in (...)` list, so the
  *  statement text itself never changes with the number of ids. */
 const SELECT_PUBLIC_EVENTS_SQL =
@@ -176,31 +165,6 @@ const SELECT_LINEUP_FOR_EVENTS_SQL =
   'select event_id, artist_id, position, billing_note, set_time from event_artists ' +
   'where event_id in (select value from json_each(?1)) order by event_id, position, artist_id';
 
-const SELECT_PUBLIC_TICKET_TYPES_SQL =
-  `select ${TICKET_TYPE_COLUMNS} from ticket_types ` +
-  `where event_id in (select value from json_each(?1)) and visibility = 'public' ` +
-  `order by event_id, position`;
-
-const SELECT_SOLD_SQL =
-  'select ticket_type_id, count(*) as sold from tickets ' +
-  "where ticket_type_id in (select value from json_each(?1)) " +
-  "and status in ('issued', 'checked_in') group by ticket_type_id";
-
-const SELECT_RESERVED_SQL =
-  'select i.ticket_type_id as ticket_type_id, coalesce(sum(i.quantity), 0) as reserved ' +
-  'from order_items i join orders o on o.id = i.order_id ' +
-  'where i.ticket_type_id in (select value from json_each(?1)) ' +
-  "and o.status = 'awaiting_payment' and o.reservation_expires_at > ?2 " +
-  'group by i.ticket_type_id';
-
-interface SoldRow {
-  ticket_type_id: string;
-  sold: number;
-}
-interface ReservedRow {
-  ticket_type_id: string;
-  reserved: number;
-}
 interface EventIdRow {
   event_id: string;
 }
@@ -215,11 +179,16 @@ const byMostRecent = (a: EventView, b: EventView): number =>
   Date.parse(b.startsAt) - Date.parse(a.startsAt);
 
 class D1EventRepository implements PublicEventService {
+  private readonly tickets: TicketInventoryService;
+
   constructor(
     private readonly db: D1Database,
     /** Clock seam so date-boundary behaviour is testable without waiting. */
     private readonly clock: () => Date = () => new Date(),
-  ) {}
+  ) {
+    // AMPED-02D owns ticket/inventory reads; this repository only consumes them.
+    this.tickets = createD1TicketInventoryService(db, clock);
+  }
 
   async listUpcoming(limit?: number): Promise<EventView[]> {
     const views = await this.project(await this.loadPublicEvents(), this.clock());
@@ -329,46 +298,11 @@ class D1EventRepository implements PublicEventService {
       for (const row of results) venues.set(row.id, row);
     }
 
-    const ticketTypeRows = (
-      await this.db
-        .prepare(SELECT_PUBLIC_TICKET_TYPES_SQL)
-        .bind(eventIdJson)
-        .all<TicketTypeRow>()
-    ).results;
-
-    const ticketTypes = new Map<string, TicketTypeRow[]>();
-    for (const row of ticketTypeRows) {
-      const list = ticketTypes.get(row.event_id);
-      if (list) list.push(row);
-      else ticketTypes.set(row.event_id, [row]);
-    }
-
-    const counters = new Map<string, { sold: number; reserved: number }>();
-    for (const row of ticketTypeRows) counters.set(row.id, { sold: 0, reserved: 0 });
-
-    const ticketTypeIds = ticketTypeRows.map((row) => row.id);
-    if (ticketTypeIds.length > 0) {
-      const ticketTypeIdJson = JSON.stringify(ticketTypeIds);
-
-      const soldRows = (
-        await this.db.prepare(SELECT_SOLD_SQL).bind(ticketTypeIdJson).all<SoldRow>()
-      ).results;
-      for (const row of soldRows) {
-        const counter = counters.get(row.ticket_type_id);
-        if (counter) counter.sold = row.sold;
-      }
-
-      const reservedRows = (
-        await this.db
-          .prepare(SELECT_RESERVED_SQL)
-          .bind(ticketTypeIdJson, now.toISOString())
-          .all<ReservedRow>()
-      ).results;
-      for (const row of reservedRows) {
-        const counter = counters.get(row.ticket_type_id);
-        if (counter) counter.reserved = row.reserved;
-      }
-    }
+    // Public ticket types plus their sold/reserved counters, from the single
+    // authoritative AMPED-02D inventory-read implementation.
+    const { typesByEvent: ticketTypes, counters } = await this.tickets.publicInventory(
+      eventIds,
+    );
 
     const mediaIds = unique([
       ...rows.flatMap((row) =>
