@@ -39,7 +39,7 @@
 
 import type { Services } from './contracts.ts';
 import { createD1AdminEventService } from './d1/admin.ts';
-import { createD1ArtistService } from './d1/artists.ts';
+import { createD1ArtistMutations, createD1ArtistService, type ArtistMutationService } from './d1/artists.ts';
 import { createD1AuditService } from './d1/audit.ts';
 import { createD1DoorService } from './d1/door.ts';
 import { createD1EnquiryService } from './d1/enquiries.ts';
@@ -48,7 +48,7 @@ import { createD1MailingListService } from './d1/mailing-list.ts';
 import { createD1MediaService } from './d1/media.ts';
 import { createD1OrderService } from './d1/orders.ts';
 import { createD1SocialService } from './d1/social.ts';
-import { createD1VenueService } from './d1/venues.ts';
+import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
 
 /**
  * Assemble the full D1-backed service set for a resolved binding.
@@ -96,6 +96,10 @@ const database = await boundDatabase();
 
 let cached: Services | null = null;
 let cachedGigMutations: GigMutationService | null = null;
+let cachedEntityMutations: {
+  artists: ArtistMutationService;
+  venues: VenueMutationService;
+} | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -131,6 +135,29 @@ export function isScaffoldData(): boolean {
  * binding here, inside src/services, so API routes never import
  * `cloudflare:workers` or read env.DB directly. Fails loudly with no binding.
  */
+/**
+ * The AMPED-04C artist/venue mutation seam, used only by the protected
+ * /api/admin/artists and /api/admin/venues routes. Same rules as the gig
+ * mutations: it resolves its own binding here, fails loudly without one, and is
+ * not part of the public `Services` read object.
+ */
+export function getAdminEntityMutations(): {
+  artists: ArtistMutationService;
+  venues: VenueMutationService;
+} {
+  if (!database) {
+    throw new Error(
+      'The D1 binding "DB" is not available, so admin artist/venue writes cannot run. ' +
+        'An unbound runtime must not accept administrative changes.',
+    );
+  }
+  cachedEntityMutations ??= {
+    artists: createD1ArtistMutations(database),
+    venues: createD1VenueMutations(database),
+  };
+  return cachedEntityMutations;
+}
+
 export function getAdminGigMutations(): GigMutationService {
   if (!database) {
     throw new Error(

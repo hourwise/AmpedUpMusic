@@ -74,9 +74,25 @@ const AGE_OPTIONS = [
   { value: '18-plus', label: '18+ (photo ID required)' },
 ];
 
+/**
+ * AMPED-04C: only active artists and venues are offered for NEW associations.
+ * A draft or edit that already references an archived venue keeps it as the
+ * selected option so saving cannot silently blank the historical association.
+ */
+const activeArtists = artists.filter((artist) => !artist.archivedAt);
+const activeVenues = venues.filter((venue) => !venue.archivedAt);
+const currentVenueArchived =
+  Boolean(event?.venue.archivedAt) && !activeVenues.some((venue) => venue.id === event?.venue.id);
+const venueChoices = currentVenueArchived && event ? [...activeVenues, event.venue] : activeVenues;
+
 const VENUE_OPTIONS = [
   { value: '', label: 'Choose a venue...' },
-  ...venues.map((venue) => ({ value: venue.id, label: `${venue.name}, ${venue.city}` })),
+  ...venueChoices.map((venue) => ({
+    value: venue.id,
+    label: venue.archivedAt
+      ? `${venue.name}, ${venue.city} (archived)`
+      : `${venue.name}, ${venue.city}`,
+  })),
 ];
 
 /** Ticket types shown on the Tickets step. A new gig starts with one row. */
@@ -310,16 +326,32 @@ const ticketRows = event?.ticketTypes.length
           label="Choose from your artists"
           options={[
             { value: '', label: 'Choose an act...' },
-            ...artists.map((artist) => ({ value: artist.id, label: artist.name })),
+            ...activeArtists.map((artist) => ({ value: artist.id, label: artist.name })),
           ]}
         />
         <Button variant="solid" size="md" type="button" data-add-lineup>Add to the bill</Button>
       </div>
       <p class="add-artist-or">or</p>
-      <Button href="/admin/artists" variant="outline" size="md">
-        <AdminIcon name="plus" size={16} />
-        Add a new artist
-      </Button>
+      {
+        isEdit ? (
+          <div class="add-artist-new">
+            <Field
+              name="newArtistName"
+              label="Brand-new act"
+              hint="Saved to your directory and added to this bill in one go."
+            />
+            <Button variant="outline" size="md" type="button" data-create-lineup-artist>
+              <AdminIcon name="plus" size={16} />
+              Create and add
+            </Button>
+          </div>
+        ) : (
+          <Button href="/admin/artists" variant="outline" size="md">
+            <AdminIcon name="plus" size={16} />
+            Add a new artist
+          </Button>
+        )
+      }
       <p class="add-artist-note">
         Adding an act here saves it to your artist directory, so next time you only have to pick it
         from the list.
@@ -814,15 +846,8 @@ const ticketRows = event?.ticketTypes.length
     syncLineup();
   });
 
-  document.querySelector('[data-add-lineup]')?.addEventListener('click', () => {
-    const select = form?.querySelector('[name="artistId"]') as HTMLSelectElement | null;
-    const artistId = select?.value ?? '';
-    if (!select || !artistId || !lineupList) return;
-    if (lineupList.querySelector(`[data-artist-id="${CSS.escape(artistId)}"]`)) {
-      say('That act is already on the bill.', 'error');
-      return;
-    }
-    const name = select.options[select.selectedIndex]?.text ?? artistId;
+  function appendLineupRow(artistId: string, name: string): void {
+    if (!lineupList) return;
     const row = document.createElement('li');
     row.className = 'lineup-row';
     row.dataset.lineupRow = '';
@@ -838,9 +863,45 @@ const ticketRows = event?.ticketTypes.length
     const label = row.querySelector('.lineup-artist');
     if (label) label.textContent = name;
     lineupList.appendChild(row);
-    select.value = '';
     syncLineup();
+  }
+
+  document.querySelector('[data-add-lineup]')?.addEventListener('click', () => {
+    const select = form?.querySelector('[name="artistId"]') as HTMLSelectElement | null;
+    const artistId = select?.value ?? '';
+    if (!select || !artistId || !lineupList) return;
+    if (lineupList.querySelector(`[data-artist-id="${CSS.escape(artistId)}"]`)) {
+      say('That act is already on the bill.', 'error');
+      return;
+    }
+    appendLineupRow(artistId, select.options[select.selectedIndex]?.text ?? artistId);
+    select.value = '';
   });
+
+  // AMPED-04C: create the artist and add them to this bill in one action.
+  document
+    .querySelector('[data-create-lineup-artist]')
+    ?.addEventListener('click', async () => {
+      const name = value('newArtistName');
+      if (!name) {
+        say('Give the new act a name.', 'error');
+        return;
+      }
+      if (!eventId) {
+        say('Save the draft first, then a brand-new act can be added from here.', 'error');
+        return;
+      }
+      try {
+        const created = await send('/api/admin/artists/inline', 'POST', { name, eventId });
+        if (!created.id) throw new Error('The artist could not be created.');
+        appendLineupRow(created.id, name);
+        const input = form?.querySelector('[name="newArtistName"]') as HTMLInputElement | null;
+        if (input) input.value = '';
+        say(`Added ${name} to the bill.`, 'ok');
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not add the artist.', 'error');
+      }
+    });
 
   form?.addEventListener('submit', (event) => event.preventDefault());
 </script>
@@ -1075,6 +1136,18 @@ const ticketRows = event?.ticketTypes.length
     color: var(--text-faint);
     text-transform: uppercase;
     letter-spacing: var(--tracking-label);
+  }
+
+  .add-artist-new {
+    display: grid;
+    gap: var(--s-3);
+    align-items: end;
+  }
+
+  @media (min-width: 40rem) {
+    .add-artist-new {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
   }
 
   .add-artist-note,

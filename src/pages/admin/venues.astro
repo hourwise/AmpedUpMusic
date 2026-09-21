@@ -13,7 +13,6 @@ import AdminLayout from '@/layouts/AdminLayout.astro';
 import Field from '@/components/ui/Field.astro';
 import Button from '@/components/ui/Button.astro';
 import Callout from '@/components/ui/Callout.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import { getServices } from '@/services/index.ts';
 
@@ -42,9 +41,29 @@ for (const gig of gigs) {
         {venues.map((venue) => {
           const used = usage.get(venue.id);
           return (
-            <li class="venue-item surface">
+            <li
+              class="venue-item surface"
+              data-venue-row
+              data-venue-id={venue.id}
+              data-venue-archived={venue.archivedAt ? 'true' : 'false'}
+              data-venue={JSON.stringify({
+                name: venue.name,
+                addressLine1: venue.addressLine1,
+                addressLine2: venue.addressLine2 ?? '',
+                city: venue.city,
+                postcode: venue.postcode,
+                standardNotes: venue.standardNotes ?? '',
+                accessibilityInfo: venue.accessibilityInfo ?? '',
+                capacity: venue.capacity ?? '',
+                websiteUrl: venue.websiteUrl ?? '',
+                mapUrl: venue.mapUrl ?? '',
+              })}
+            >
               <div class="venue-head">
-                <h2 class="display display-sm">{venue.name}</h2>
+                <h2 class="display display-sm">
+                  {venue.name}
+                  {venue.archivedAt && <span class="venue-archived">Archived</span>}
+                </h2>
                 {venue.capacity && <p class="venue-cap">Holds {venue.capacity}</p>}
               </div>
 
@@ -67,7 +86,21 @@ for (const gig of gigs) {
               </p>
 
               <div class="venue-actions">
-                <Button variant="ghost" size="sm">Edit</Button>
+                {venue.archivedAt ? (
+                  <span class="venue-archived-note">Archived - historical only</span>
+                ) : (
+                  <>
+                    <Button variant="ghost" size="sm" type="button" data-edit-venue>
+                      Edit
+                    </Button>
+                    <Button variant="ghost" size="sm" type="button" data-archive-venue>
+                      Archive
+                    </Button>
+                  </>
+                )}
+                <Button variant="ghost" size="sm" type="button" data-delete-venue>
+                  Delete
+                </Button>
                 {venue.mapUrl && (
                   <Button href={venue.mapUrl} variant="ghost" size="sm" rel="noopener">
                     Map
@@ -99,7 +132,8 @@ for (const gig of gigs) {
       </p>
     </Callout>
 
-    <form class="add-form" data-mock="AMPED-04C venue CRUD">
+    <form class="add-form" data-venue-form>
+      <input type="hidden" name="venueId" data-venue-id-input />
       <div class="add-grid">
         <Field name="name" label="Venue name" required />
         <Field name="capacity" label="Capacity" type="number" min={0} />
@@ -136,16 +170,153 @@ for (const gig of gigs) {
       />
 
       <div class="add-actions">
-        <Button type="submit" variant="volt" size="md">Save venue</Button>
+        <Button variant="ghost" size="md" type="button" class="is-hidden" data-cancel-venue>
+          Cancel
+        </Button>
+        <Button type="submit" variant="volt" size="md" data-save-venue>Save venue</Button>
       </div>
+      <p class="form-feedback" data-venue-feedback role="status" aria-live="polite" hidden></p>
     </form>
-
-    <ScaffoldNote slice="AMPED-04C">
-      Venue records are read-only here. This slice adds create and edit, with archive rather than
-      delete for any venue that has ever hosted an event.
-    </ScaffoldNote>
   </section>
 </AdminLayout>
+
+<script>
+  // AMPED-04C: real protected CRUD for venues. Accessibility is required and
+  // enforced by the server as well as the browser.
+  const form = document.querySelector<HTMLFormElement>('[data-venue-form]');
+
+  if (form) {
+    const idInput = form.querySelector<HTMLInputElement>('[data-venue-id-input]');
+    const heading = document.querySelector('#add-venue-heading');
+    const saveLabel = form.querySelector<HTMLElement>('[data-save-venue]');
+    const cancel = form.querySelector<HTMLElement>('[data-cancel-venue]');
+    const feedback = document.querySelector<HTMLElement>('[data-venue-feedback]');
+
+    const say = (message: string, tone: 'ok' | 'error') => {
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.dataset.tone = tone;
+      feedback.hidden = false;
+    };
+
+    const field = (name: string) =>
+      (
+        form.querySelector(`[name="${name}"]`) as
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | null
+      )?.value.trim() ?? '';
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = idInput?.value ?? '';
+      const payload = {
+        name: field('name'),
+        addressLine1: field('addressLine1'),
+        addressLine2: field('addressLine2'),
+        city: field('city'),
+        postcode: field('postcode'),
+        standardNotes: field('standardNotes'),
+        accessibilityInfo: field('accessibilityInfo'),
+        capacity: field('capacity'),
+        websiteUrl: field('websiteUrl'),
+        mapUrl: field('mapUrl'),
+      };
+
+      try {
+        const response = await fetch(
+          id ? `/api/admin/venues/${encodeURIComponent(id)}` : '/api/admin/venues',
+          {
+            method: id ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        );
+        const data = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          fields?: Record<string, string>;
+        };
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.fields
+              ? Object.values(data.fields).filter(Boolean).join(' ')
+              : 'That venue could not be saved.',
+          );
+        }
+        window.location.reload();
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not save.', 'error');
+      }
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-venue-row]').forEach((row) => {
+      const id = row.dataset.venueId ?? '';
+      const name = (JSON.parse(row.dataset.venue ?? '{}') as { name?: string }).name ?? '';
+
+      row.querySelector('[data-edit-venue]')?.addEventListener('click', () => {
+        const data = JSON.parse(row.dataset.venue ?? '{}') as Record<string, string>;
+        if (idInput) idInput.value = id;
+        for (const key of [
+          'name',
+          'addressLine1',
+          'addressLine2',
+          'city',
+          'postcode',
+          'standardNotes',
+          'accessibilityInfo',
+          'capacity',
+          'websiteUrl',
+          'mapUrl',
+        ]) {
+          const input = form.querySelector(`[name="${key}"]`) as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null;
+          if (input) input.value = data[key] ?? '';
+        }
+        if (heading) heading.textContent = `Edit ${data.name ?? 'venue'}`;
+        if (saveLabel) saveLabel.textContent = 'Save changes';
+        cancel?.classList.remove('is-hidden');
+        form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      row.querySelector('[data-archive-venue]')?.addEventListener('click', async () => {
+        if (!window.confirm(`Archive ${name}? It stays on past gigs but cannot be picked again.`)) {
+          return;
+        }
+        const response = await fetch(`/api/admin/venues/${encodeURIComponent(id)}/archive`, {
+          method: 'POST',
+        });
+        const data = (await response.json().catch(() => ({}))) as { ok?: boolean };
+        if (response.ok && data.ok) window.location.reload();
+        else say('That venue could not be archived.', 'error');
+      });
+
+      row.querySelector('[data-delete-venue]')?.addEventListener('click', async () => {
+        if (!window.confirm(`Delete ${name}? Only a venue with no gigs can be deleted.`)) return;
+        const response = await fetch(`/api/admin/venues/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
+        const data = (await response.json().catch(() => ({}))) as { ok?: boolean };
+        if (response.ok && data.ok) window.location.reload();
+        else
+          say(
+            'That venue could not be deleted. If it hosts gigs, archive it instead.',
+            'error',
+          );
+      });
+    });
+
+    cancel?.addEventListener('click', () => {
+      form?.reset();
+      if (idInput) idInput.value = '';
+      if (heading) heading.textContent = 'Add a venue';
+      if (saveLabel) saveLabel.textContent = 'Save venue';
+      cancel.classList.add('is-hidden');
+      say('Edit cancelled.', 'ok');
+    });
+  }
+</script>
 
 <style>
   .venue-grid {
@@ -242,7 +413,38 @@ for (const gig of gigs) {
   .add-actions {
     display: flex;
     justify-content: flex-end;
+    gap: var(--s-2);
     padding-top: var(--s-3);
     border-top: 1px solid var(--hairline);
+  }
+
+  .venue-archived,
+  .venue-archived-note {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--warn);
+  }
+
+  .venue-archived {
+    margin-left: var(--s-2);
+  }
+
+  .is-hidden {
+    display: none;
+  }
+
+  .form-feedback {
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .form-feedback[data-tone='ok'] {
+    color: var(--go);
+  }
+
+  .form-feedback[data-tone='error'] {
+    color: var(--stop);
   }
 </style>

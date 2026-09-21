@@ -13,7 +13,6 @@ import AdminLayout from '@/layouts/AdminLayout.astro';
 import Field from '@/components/ui/Field.astro';
 import Button from '@/components/ui/Button.astro';
 import PosterImage from '@/components/events/PosterImage.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import { getServices } from '@/services/index.ts';
 
@@ -46,12 +45,28 @@ const rows = await Promise.all(
     rows.length > 0 ? (
       <ul class="artist-grid">
         {rows.map((row) => (
-          <li class="artist-item surface">
+          <li
+            class="artist-item surface"
+            data-artist-row
+            data-artist-id={row.artist.id}
+            data-artist-archived={row.artist.archivedAt ? 'true' : 'false'}
+            data-artist={JSON.stringify({
+              name: row.artist.name,
+              genre: row.artist.genre ?? '',
+              basedIn: row.artist.basedIn ?? '',
+              tagline: row.artist.tagline ?? '',
+              biography: row.artist.biography ?? '',
+              links: row.artist.links,
+            })}
+          >
             <div class="artist-image">
               <PosterImage src={row.imageUrl} alt="" title={row.artist.name} ratio="square" />
             </div>
             <div class="artist-body">
-              <h2 class="artist-name display display-sm">{row.artist.name}</h2>
+              <h2 class="artist-name display display-sm">
+                {row.artist.name}
+                {row.artist.archivedAt && <span class="artist-archived">Archived</span>}
+              </h2>
               {row.artist.genre && <p class="artist-genre">{row.artist.genre}</p>}
               {row.artist.tagline && <p class="artist-tagline">{row.artist.tagline}</p>}
               <p class="artist-count">
@@ -59,7 +74,21 @@ const rows = await Promise.all(
                 {row.upcoming > 0 && <span class="artist-upcoming">{row.upcoming} coming up</span>}
               </p>
               <div class="artist-actions">
-                <Button variant="ghost" size="sm">Edit</Button>
+                {row.artist.archivedAt ? (
+                  <span class="artist-archived-note">Archived - historical only</span>
+                ) : (
+                  <>
+                    <Button variant="ghost" size="sm" type="button" data-edit-artist>
+                      Edit
+                    </Button>
+                    <Button variant="ghost" size="sm" type="button" data-archive-artist>
+                      Archive
+                    </Button>
+                  </>
+                )}
+                <Button variant="ghost" size="sm" type="button" data-delete-artist>
+                  Delete
+                </Button>
                 <Button href={`/artists/${row.artist.slug}`} variant="ghost" size="sm">
                   View page
                 </Button>
@@ -84,7 +113,8 @@ const rows = await Promise.all(
       Only the name is needed to get going. Everything else can be filled in later.
     </p>
 
-    <form class="add-form" data-mock="AMPED-04C artist CRUD">
+    <form class="add-form" data-artist-form>
+      <input type="hidden" name="artistId" data-artist-id-input />
       <div class="add-grid">
         <Field name="name" label="Name" required hint="Exactly as they spell it." />
         <Field name="genre" label="Genre" hint="Indie rock, folk, DJ - whatever you would say." />
@@ -110,16 +140,160 @@ const rows = await Promise.all(
       </fieldset>
 
       <div class="add-actions">
-        <Button type="submit" variant="volt" size="md">Save artist</Button>
+        <Button variant="ghost" size="md" type="button" class="is-hidden" data-cancel-artist>
+          Cancel
+        </Button>
+        <Button type="submit" variant="volt" size="md" data-save-artist>Save artist</Button>
       </div>
+      <p class="form-feedback" data-artist-feedback role="status" aria-live="polite" hidden></p>
     </form>
-
-    <ScaffoldNote slice="AMPED-04C">
-      Artist and venue records are read-only here. This slice adds create, edit and archive, with
-      the rule that an artist who appears on any event can be archived but never hard-deleted.
-    </ScaffoldNote>
   </section>
 </AdminLayout>
+
+<script>
+  // AMPED-04C: real protected CRUD. The server is authoritative; this script
+  // only assembles the payload and reports what the server returns.
+  const form = document.querySelector<HTMLFormElement>('[data-artist-form]');
+
+  if (form) {
+    const idInput = form.querySelector<HTMLInputElement>('[data-artist-id-input]');
+    const heading = document.querySelector('#add-artist-heading');
+    const saveLabel = form.querySelector<HTMLElement>('[data-save-artist]');
+    const cancel = form.querySelector<HTMLElement>('[data-cancel-artist]');
+    const feedback = document.querySelector<HTMLElement>('[data-artist-feedback]');
+
+    const say = (message: string, tone: 'ok' | 'error') => {
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.dataset.tone = tone;
+      feedback.hidden = false;
+    };
+
+    const field = (name: string) =>
+      (form.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLTextAreaElement | null)
+        ?.value.trim() ?? '';
+
+    function reset(): void {
+      form?.reset();
+      if (idInput) idInput.value = '';
+      if (heading) heading.textContent = 'Add an artist';
+      if (saveLabel) saveLabel.textContent = 'Save artist';
+      cancel?.classList.add('is-hidden');
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = idInput?.value ?? '';
+      const payload = {
+        name: field('name'),
+        genre: field('genre'),
+        basedIn: field('basedIn'),
+        tagline: field('tagline'),
+        biography: field('biography'),
+        links: {
+          instagram: field('instagram'),
+          tiktok: field('tiktok'),
+          bandcamp: field('bandcamp'),
+          spotify: field('spotify'),
+          youtube: field('youtube'),
+          website: field('website'),
+        },
+      };
+
+      try {
+        const response = await fetch(
+          id ? `/api/admin/artists/${encodeURIComponent(id)}` : '/api/admin/artists',
+          {
+            method: id ? 'PATCH' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+        );
+        const data = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          fields?: Record<string, string>;
+        };
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.fields
+              ? Object.values(data.fields).filter(Boolean).join(' ')
+              : 'That artist could not be saved.',
+          );
+        }
+        window.location.reload();
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not save.', 'error');
+      }
+    });
+
+    document.querySelectorAll<HTMLElement>('[data-artist-row]').forEach((row) => {
+      const id = row.dataset.artistId ?? '';
+      const name = (JSON.parse(row.dataset.artist ?? '{}') as { name?: string }).name ?? '';
+
+      row.querySelector('[data-edit-artist]')?.addEventListener('click', () => {
+        const data = JSON.parse(row.dataset.artist ?? '{}') as {
+          name?: string;
+          genre?: string;
+          basedIn?: string;
+          tagline?: string;
+          biography?: string;
+          links?: Record<string, string>;
+        };
+        if (idInput) idInput.value = id;
+        const set = (fieldName: string, value: string | undefined) => {
+          const input = form.querySelector(`[name="${fieldName}"]`) as
+            | HTMLInputElement
+            | HTMLTextAreaElement
+            | null;
+          if (input) input.value = value ?? '';
+        };
+        set('name', data.name);
+        set('genre', data.genre);
+        set('basedIn', data.basedIn);
+        set('tagline', data.tagline);
+        set('biography', data.biography);
+        for (const network of ['instagram', 'tiktok', 'bandcamp', 'spotify', 'youtube', 'website']) {
+          set(network, data.links?.[network]);
+        }
+        if (heading) heading.textContent = `Edit ${data.name ?? 'artist'}`;
+        if (saveLabel) saveLabel.textContent = 'Save changes';
+        cancel?.classList.remove('is-hidden');
+        form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+
+      row.querySelector('[data-archive-artist]')?.addEventListener('click', async () => {
+        if (!window.confirm(`Archive ${name}? They stay on past gigs but cannot be picked again.`)) {
+          return;
+        }
+        const response = await fetch(`/api/admin/artists/${encodeURIComponent(id)}/archive`, {
+          method: 'POST',
+        });
+        const data = (await response.json().catch(() => ({}))) as { ok?: boolean };
+        if (response.ok && data.ok) window.location.reload();
+        else say('That artist could not be archived.', 'error');
+      });
+
+      row.querySelector('[data-delete-artist]')?.addEventListener('click', async () => {
+        if (!window.confirm(`Delete ${name}? Only an artist with no gigs can be deleted.`)) return;
+        const response = await fetch(`/api/admin/artists/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
+        const data = (await response.json().catch(() => ({}))) as { ok?: boolean };
+        if (response.ok && data.ok) window.location.reload();
+        else
+          say(
+            'That artist could not be deleted. If they appear on a gig, archive them instead.',
+            'error',
+          );
+      });
+    });
+
+    cancel?.addEventListener('click', () => {
+      reset();
+      say('Edit cancelled.', 'ok');
+    });
+  }
+</script>
 
 <style>
   .artist-grid {
@@ -228,7 +402,38 @@ const rows = await Promise.all(
   .add-actions {
     display: flex;
     justify-content: flex-end;
+    gap: var(--s-2);
     padding-top: var(--s-3);
     border-top: 1px solid var(--hairline);
+  }
+
+  .artist-archived,
+  .artist-archived-note {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--warn);
+  }
+
+  .artist-archived {
+    margin-left: var(--s-2);
+  }
+
+  .is-hidden {
+    display: none;
+  }
+
+  .form-feedback {
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .form-feedback[data-tone='ok'] {
+    color: var(--go);
+  }
+
+  .form-feedback[data-tone='error'] {
+    color: var(--stop);
   }
 </style>

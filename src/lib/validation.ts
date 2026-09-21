@@ -451,6 +451,198 @@ export interface ReadinessReport {
   warnings: string[];
 }
 
+// ---------------------------------------------------------------------------
+// AMPED-04C - artist and venue administration
+// ---------------------------------------------------------------------------
+
+/**
+ * Unknown fields are rejected rather than ignored (the standing policy for new
+ * admin mutation APIs). `prefix` keeps nested field errors addressable.
+ */
+function rejectUnknownKeys(
+  body: Record<string, unknown>,
+  allowed: readonly string[],
+  fields: Record<string, string>,
+  prefix = '',
+): boolean {
+  let rejected = false;
+  for (const key of Object.keys(body)) {
+    if (!allowed.includes(key)) {
+      fields[`${prefix}${key}`] = 'Unsupported field.';
+      rejected = true;
+    }
+  }
+  return rejected;
+}
+
+const SOCIAL_NETWORKS = [
+  'instagram',
+  'tiktok',
+  'facebook',
+  'youtube',
+  'spotify',
+  'bandcamp',
+  'soundcloud',
+  'website',
+] as const;
+
+export type SocialNetworkKey = (typeof SOCIAL_NETWORKS)[number];
+
+export interface ValidatedArtistInput {
+  name: string;
+  tagline?: string;
+  biography?: string;
+  genre?: string;
+  basedIn?: string;
+  links: Partial<Record<SocialNetworkKey, string>>;
+}
+
+export interface ValidatedVenueInput {
+  name: string;
+  addressLine1: string;
+  addressLine2?: string;
+  city: string;
+  postcode: string;
+  standardNotes?: string;
+  accessibilityInfo: string;
+  capacity?: number;
+  websiteUrl?: string;
+  mapUrl?: string;
+}
+
+/** Validate an artist create/update payload against an explicit allowlist. */
+export function parseArtistInput(
+  payload: unknown,
+): { ok: true; value: ValidatedArtistInput } | { ok: false; fields: Record<string, string> } {
+  const fields: Record<string, string> = {};
+  const body = (payload ?? {}) as Record<string, unknown>;
+
+  rejectUnknownKeys(
+    body,
+    ['name', 'tagline', 'biography', 'genre', 'basedIn', 'links'],
+    fields,
+  );
+
+  const name = clean(body.name);
+  if (name.length < 1) fields.name = 'An artist needs a name.';
+  else if (name.length > 160) fields.name = 'That name is too long.';
+
+  const linksBody = (body.links ?? {}) as Record<string, unknown>;
+  if (typeof body.links === 'object' && body.links !== null) {
+    rejectUnknownKeys(linksBody, SOCIAL_NETWORKS, fields, 'links.');
+  }
+  const links: ValidatedArtistInput['links'] = {};
+  for (const network of SOCIAL_NETWORKS) {
+    const url = clean(linksBody[network]);
+    if (url.length === 0) continue;
+    if (!isUrl(url)) fields[`links.${network}`] = 'Use a full https:// link.';
+    else links[network] = url;
+  }
+
+  if (Object.values(fields).some(Boolean)) return { ok: false, fields };
+
+  const tagline = clean(body.tagline);
+  const biography = clean(body.biography);
+  const genre = clean(body.genre);
+  const basedIn = clean(body.basedIn);
+
+  return {
+    ok: true,
+    value: {
+      name,
+      ...(tagline ? { tagline } : {}),
+      ...(biography ? { biography } : {}),
+      ...(genre ? { genre } : {}),
+      ...(basedIn ? { basedIn } : {}),
+      links,
+    },
+  };
+}
+
+/** Validate a venue create/update payload against an explicit allowlist. */
+export function parseVenueInput(
+  payload: unknown,
+): { ok: true; value: ValidatedVenueInput } | { ok: false; fields: Record<string, string> } {
+  const fields: Record<string, string> = {};
+  const body = (payload ?? {}) as Record<string, unknown>;
+
+  rejectUnknownKeys(
+    body,
+    [
+      'name',
+      'addressLine1',
+      'addressLine2',
+      'city',
+      'postcode',
+      'standardNotes',
+      'accessibilityInfo',
+      'capacity',
+      'websiteUrl',
+      'mapUrl',
+    ],
+    fields,
+  );
+
+  const name = clean(body.name);
+  if (name.length < 1) fields.name = 'A venue needs a name.';
+
+  const addressLine1 = clean(body.addressLine1);
+  if (addressLine1.length < 1) fields.addressLine1 = 'Add the street address.';
+
+  const city = clean(body.city);
+  if (city.length < 1) fields.city = 'Add the town or city.';
+
+  const postcode = clean(body.postcode);
+  if (postcode.length < 1) fields.postcode = 'Add the postcode.';
+
+  // Accessibility is required and must be a real value; a blank or
+  // whitespace-only string is a failure, not something to fill in for them.
+  const accessibilityInfo = asString(body.accessibilityInfo).trim();
+  if (accessibilityInfo.length < 1) {
+    fields.accessibilityInfo =
+      'Access information is required. If there is none to add, say so plainly.';
+  }
+
+  let capacity: number | undefined;
+  const capacityRaw = asString(body.capacity).trim();
+  if (capacityRaw !== '') {
+    const parsed = Number(capacityRaw);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      fields.capacity = 'Capacity is a whole number, zero or more.';
+    } else {
+      capacity = parsed;
+    }
+  }
+
+  for (const key of ['websiteUrl', 'mapUrl'] as const) {
+    const url = clean(body[key]);
+    if (url.length > 0 && !isUrl(url)) fields[key] = 'Use a full https:// link.';
+  }
+
+  if (Object.values(fields).some(Boolean)) return { ok: false, fields };
+
+  const addressLine2 = clean(body.addressLine2);
+  const standardNotes = clean(body.standardNotes);
+  const websiteUrl = clean(body.websiteUrl);
+  const mapUrl = clean(body.mapUrl);
+
+  return {
+    ok: true,
+    value: {
+      name,
+      addressLine1,
+      ...(addressLine2 ? { addressLine2 } : {}),
+      city,
+      postcode,
+      ...(standardNotes ? { standardNotes } : {}),
+      accessibilityInfo,
+      ...(capacity !== undefined ? { capacity } : {}),
+      ...(websiteUrl ? { websiteUrl } : {}),
+      ...(mapUrl ? { mapUrl } : {}),
+    },
+  };
+}
+
 /**
  * What must be true before a draft can go on sale. Derived from the stored
  * event, not from the form, and never blocks on artwork: R2 upload is
