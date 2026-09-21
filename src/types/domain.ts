@@ -44,6 +44,12 @@ export interface Venue {
   websiteUrl?: string;
   /** Deep link to a map provider. Stored, not derived, so a bad pin can be fixed. */
   mapUrl?: string;
+  /**
+   * When the venue was retired from new-promotion pickers (AMPED-04C0).
+   * Absent on active venues; a non-null value never breaks the events that
+   * already reference this venue.
+   */
+  archivedAt?: IsoDateTime;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
@@ -76,6 +82,12 @@ export interface Artist {
   basedIn?: string;
   imageAssetId?: Uuid;
   links: SocialLinks;
+  /**
+   * When the artist was retired from new-promotion pickers (AMPED-04C0).
+   * Absent on active artists; a non-null value never breaks the line-ups that
+   * already reference this artist.
+   */
+  archivedAt?: IsoDateTime;
   createdAt: IsoDateTime;
   updatedAt: IsoDateTime;
 }
