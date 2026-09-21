@@ -60,9 +60,7 @@ const canDelete = event?.status === 'draft' && !hasOrders;
       <div slot="actions" class="head-actions">
         <StatusBadge kind="event" status={event.status} size="md" />
         <Button href={event.href} variant="ghost" size="md">View on site</Button>
-        <Button variant="outline" size="md" data-confirm-open="duplicate-confirm">
-          Duplicate
-        </Button>
+        <Button variant="outline" size="md" type="button" data-duplicate-open>Duplicate</Button>
       </div>
 
       {event.status === 'draft' && (
@@ -155,14 +153,34 @@ const canDelete = event?.status === 'draft' && !hasOrders;
         <p class="danger-feedback" data-gig-feedback role="status" aria-live="polite" hidden></p>
       </section>
 
-      <ConfirmDialog
-        id="duplicate-confirm"
-        tone="volt"
-        title="Duplicate this promotion?"
-        body="Copies the venue, line-up, ticket types, prices, artwork and social links into a brand new draft. Orders, tickets and dates are not copied - you just set the new date."
-        confirmLabel="Make a copy"
-        cancelLabel="Cancel"
-      />
+      <dialog
+        class="duplicate-dialog"
+        id="duplicate-dialog"
+        aria-labelledby="duplicate-title"
+      >
+        <div class="duplicate-panel">
+          <h2 class="display display-sm" id="duplicate-title">Duplicate this promotion</h2>
+          <p class="duplicate-body">
+            Copies the venue, line-up, ticket types, prices, artwork and social links into a brand
+            new draft. Orders, tickets and the old dates are not copied - set the new dates here.
+          </p>
+          <div class="duplicate-grid">
+            <label class="duplicate-field">
+              <span>New doors</span>
+              <input type="datetime-local" name="newDoorsAt" data-duplicate-doors required />
+            </label>
+            <label class="duplicate-field">
+              <span>New first act</span>
+              <input type="datetime-local" name="newStartsAt" data-duplicate-starts required />
+            </label>
+          </div>
+          <p class="duplicate-error" data-duplicate-error role="alert" hidden></p>
+          <div class="duplicate-actions">
+            <Button variant="ghost" size="md" type="button" data-duplicate-cancel>Cancel</Button>
+            <Button variant="volt" size="md" type="button" data-duplicate-submit>Make a copy</Button>
+          </div>
+        </div>
+      </dialog>
 
       <ConfirmDialog
         id="postpone-confirm"
@@ -281,6 +299,61 @@ const canDelete = event?.status === 'draft' && !hasOrders;
       await call(`/api/admin/gigs/${encodeURIComponent(id)}`, 'DELETE');
       window.location.assign('/admin/gigs');
     });
+
+    // --- AMPED-04D: Duplicate Promotion requires the NEW dates -------------
+    const duplicateDialog = document.querySelector<HTMLDialogElement>('#duplicate-dialog');
+    const duplicateError = document.querySelector<HTMLElement>('[data-duplicate-error]');
+    const duplicateDoors = duplicateDialog?.querySelector<HTMLInputElement>('[data-duplicate-doors]');
+    const duplicateStarts = duplicateDialog?.querySelector<HTMLInputElement>('[data-duplicate-starts]');
+    const duplicateSubmit = duplicateDialog?.querySelector<HTMLButtonElement>('[data-duplicate-submit]');
+
+    const showDuplicateError = (message: string) => {
+      if (!duplicateError) return;
+      duplicateError.textContent = message;
+      duplicateError.hidden = false;
+    };
+
+    document.querySelector('[data-duplicate-open]')?.addEventListener('click', () => {
+      if (duplicateError) duplicateError.hidden = true;
+      // Deliberately blank: the new dates are never pre-filled from the source.
+      if (duplicateDoors) duplicateDoors.value = '';
+      if (duplicateStarts) duplicateStarts.value = '';
+      duplicateDialog?.showModal();
+      duplicateDoors?.focus();
+    });
+
+    duplicateDialog?.querySelector('[data-duplicate-cancel]')?.addEventListener('click', () => {
+      duplicateDialog.close();
+    });
+
+    duplicateDialog?.addEventListener('click', (event) => {
+      if (event.target === duplicateDialog) duplicateDialog.close();
+    });
+
+    duplicateSubmit?.addEventListener('click', async () => {
+      const doors = duplicateDoors?.value ?? '';
+      const starts = duplicateStarts?.value ?? '';
+      if (!doors || !starts) {
+        showDuplicateError('Enter the new doors and first act times.');
+        return;
+      }
+
+      duplicateSubmit.disabled = true;
+      try {
+        const data = (await call('/api/admin/gigs/duplicate', 'POST', {
+          sourceEventId: id,
+          newDoorsAt: doors,
+          newStartsAt: starts,
+        })) as { id?: string };
+        if (!data.id) throw new Error('The copy could not be created.');
+        window.location.assign(`/admin/gigs/${data.id}`);
+      } catch (error) {
+        duplicateSubmit.disabled = false;
+        showDuplicateError(
+          error instanceof Error ? error.message : 'That promotion could not be duplicated.',
+        );
+      }
+    });
   }
 </script>
 
@@ -362,5 +435,74 @@ const canDelete = event?.status === 'draft' && !hasOrders;
 
   .danger-card :global(.btn) {
     justify-self: start;
+  }
+
+  .duplicate-dialog {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    max-width: min(34rem, calc(100vw - 2rem));
+  }
+
+  .duplicate-dialog::backdrop {
+    background: rgb(4 4 6 / 80%);
+    backdrop-filter: blur(4px);
+  }
+
+  .duplicate-panel {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-6);
+    background: var(--ink-raised);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text);
+  }
+
+  .duplicate-body {
+    color: var(--text-muted);
+    font-size: var(--step--1);
+  }
+
+  .duplicate-grid {
+    display: grid;
+    gap: var(--s-3);
+  }
+
+  @media (min-width: 34rem) {
+    .duplicate-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .duplicate-field {
+    display: grid;
+    gap: var(--s-1);
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .duplicate-field input {
+    padding: var(--s-2);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    background: var(--ink);
+    color: var(--text);
+    font: inherit;
+  }
+
+  .duplicate-error {
+    font-size: var(--step--2);
+    font-weight: 600;
+    color: var(--stop);
+  }
+
+  .duplicate-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
+    flex-wrap: wrap;
   }
 </style>

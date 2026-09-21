@@ -423,6 +423,18 @@ const SELECT_EVENT_TICKET_TYPES_SQL =
   'select id, visibility, capacity from ticket_types where event_id = ?1';
 const SELECT_EVENT_ROW_SQL = `select ${EVENT_COLUMNS} from events where id = ?1`;
 
+// Duplicate Promotion (AMPED-04D) reads the source structure authoritatively.
+const SELECT_SOURCE_VENUE_SQL = 'select archived_at from venues where id = ?1';
+const SELECT_SOURCE_LINEUP_SQL =
+  'select a.id as artist_id, a.archived_at as archived_at from event_artists ea ' +
+  'join artists a on a.id = ea.artist_id where ea.event_id = ?1';
+const SELECT_SOURCE_LINEUP_ORDER_SQL =
+  'select artist_id, position, billing_note from event_artists ' +
+  'where event_id = ?1 order by position, artist_id';
+const SELECT_SOURCE_TICKET_TYPES_SQL =
+  'select name, description, price_in_pence, capacity, max_per_order, visibility, position ' +
+  'from ticket_types where event_id = ?1 order by position, id';
+
 export interface GigOperator {
   email: string;
   sub?: string;
@@ -469,6 +481,16 @@ export interface GigMutationService {
   ): Promise<void>;
   remove(id: string, operator: GigOperator): Promise<void>;
   readiness(id: string): Promise<ReadinessReport>;
+  /**
+   * Duplicate a promotion into a clean draft (AMPED-04D). Reusable structure is
+   * copied from the source read in D1; the NEW doors/start times are supplied
+   * by the operator and are never taken from the source.
+   */
+  duplicate(
+    sourceId: string,
+    dates: { doorsAt: string; startsAt: string },
+    operator: GigOperator,
+  ): Promise<{ id: string; slug: string }>;
 }
 
 class D1GigMutations implements GigMutationService {
@@ -859,6 +881,162 @@ class D1GigMutations implements GigMutationService {
     const [view] = await projectEventRows(this.db, this.tickets, [row], this.deps.now());
     if (!view) throw new NotFoundError('That gig does not exist.');
     return assessReadiness(view, view.venue.accessibilityInfo);
+  }
+
+  async duplicate(
+    sourceId: string,
+    dates: { doorsAt: string; startsAt: string },
+    operator: GigOperator,
+  ): Promise<{ id: string; slug: string }> {
+    const source = await this.db
+      .prepare(SELECT_EVENT_ROW_SQL)
+      .bind(sourceId)
+      .first<EventRow>();
+    if (!source) throw new NotFoundError('That promotion does not exist.');
+
+    // Supervisor archival rule: an archived venue or artist is historical and
+    // must not be offered for new work. Fail before writing anything.
+    const venue = await this.db
+      .prepare(SELECT_SOURCE_VENUE_SQL)
+      .bind(source.venue_id)
+      .first<{ archived_at: string | null }>();
+    if (!venue) throw new NotFoundError('That promotion references a venue that no longer exists.');
+    if (venue.archived_at !== null) {
+      throw new ConflictError(
+        'This promotion uses an archived venue. Choose an active venue through a normal promotion edit before duplicating.',
+      );
+    }
+
+    const lineup = (
+      await this.db.prepare(SELECT_SOURCE_LINEUP_SQL).bind(sourceId).all<{
+        artist_id: string;
+        archived_at: string | null;
+      }>()
+    ).results;
+    if (lineup.some((entry) => entry.archived_at !== null)) {
+      throw new ConflictError(
+        'A band on this bill is archived. Choose active replacements through a normal promotion edit before duplicating.',
+      );
+    }
+
+    const runningOrder = (
+      await this.db.prepare(SELECT_SOURCE_LINEUP_ORDER_SQL).bind(sourceId).all<{
+        artist_id: string;
+        position: number;
+        billing_note: string | null;
+      }>()
+    ).results;
+
+    const ticketRows = (
+      await this.db.prepare(SELECT_SOURCE_TICKET_TYPES_SQL).bind(sourceId).all<{
+        name: string;
+        description: string | null;
+        price_in_pence: number;
+        capacity: number;
+        max_per_order: number | null;
+        visibility: string;
+        position: number;
+      }>()
+    ).results;
+
+    const id = this.deps.newId('evt');
+    const slug = await this.uniqueSlug(slugify(source.title));
+    const at = this.stamp();
+
+    const statements: D1PreparedStatement[] = [
+      this.db
+        .prepare(
+          `insert into events (
+             id, title, slug, status, strapline, description, venue_id,
+             doors_at, starts_at, ends_at, age_restriction, accessibility_notes,
+             poster_asset_id, hero_asset_id,
+             link_instagram, link_tiktok, link_facebook, link_youtube,
+             link_spotify, link_bandcamp, link_soundcloud, link_website,
+             photography_credit, photography_gallery_url, photography_photographer_url,
+             internal_notes, status_message, rescheduled_to_event_id, published_at,
+             created_at, updated_at
+           ) values (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, null, ?9, ?10,
+             ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
+             null, null, null, ?25, ?25)`,
+        )
+        .bind(
+          id,
+          source.title,
+          slug,
+          source.strapline,
+          source.description,
+          source.venue_id,
+          dates.doorsAt,
+          dates.startsAt,
+          source.age_restriction,
+          source.accessibility_notes,
+          source.poster_asset_id,
+          source.hero_asset_id,
+          source.link_instagram,
+          source.link_tiktok,
+          source.link_facebook,
+          source.link_youtube,
+          source.link_spotify,
+          source.link_bandcamp,
+          source.link_soundcloud,
+          source.link_website,
+          source.photography_credit,
+          source.photography_gallery_url,
+          source.photography_photographer_url,
+          source.internal_notes,
+          at,
+        ),
+    ];
+
+    for (const entry of runningOrder) {
+      // Running order/billing is reusable; the stage time belonged to the old
+      // date, so it is reset rather than copied.
+      statements.push(
+        this.db
+          .prepare(
+            'insert into event_artists (event_id, artist_id, position, billing_note, set_time) values (?1, ?2, ?3, ?4, null)',
+          )
+          .bind(id, entry.artist_id, entry.position, entry.billing_note),
+      );
+    }
+
+    for (const ticket of ticketRows) {
+      // New identity, configuration only, sale windows reset to null.
+      statements.push(
+        this.db
+          .prepare(
+            `insert into ticket_types (
+               id, event_id, name, description, price_in_pence, capacity, max_per_order,
+               sales_open_at, sales_close_at, position, visibility
+             ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, null, null, ?8, ?9)`,
+          )
+          .bind(
+            this.deps.newId('tt'),
+            id,
+            ticket.name,
+            ticket.description,
+            ticket.price_in_pence,
+            ticket.capacity,
+            ticket.max_per_order,
+            ticket.position,
+            ticket.visibility,
+          ),
+      );
+    }
+
+    statements.push(
+      this.auditStatement(
+        this.deps.newId('aud'),
+        operator.email,
+        'event.duplicated',
+        id,
+        `Duplicated "${source.title}" from ${sourceId}`,
+        at,
+      ),
+    );
+
+    await this.db.batch(statements);
+    return { id, slug };
   }
 
   // -- helpers -------------------------------------------------------------

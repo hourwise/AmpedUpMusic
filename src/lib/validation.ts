@@ -559,6 +559,65 @@ export function parseArtistInput(
   };
 }
 
+export interface ValidatedDuplicateInput {
+  sourceEventId: string;
+  /** Operator-supplied new doors time, canonical UTC. Never copied. */
+  doorsAt: string;
+  /** Operator-supplied new start time, canonical UTC. Never copied. */
+  startsAt: string;
+}
+
+/**
+ * Validate the Duplicate Promotion request (AMPED-04D, revised).
+ *
+ * The operator must supply the NEW doors and start times explicitly; the source
+ * event's date is never accepted or implied. The values are `datetime-local`
+ * wall clock, interpreted as Europe/London by the accepted AMPED-04B converter
+ * and stored as canonical UTC.
+ */
+export function parseDuplicateInput(
+  payload: unknown,
+): { ok: true; value: ValidatedDuplicateInput } | { ok: false; fields: Record<string, string> } {
+  const fields: Record<string, string> = {};
+  const body = (payload ?? {}) as Record<string, unknown>;
+
+  rejectUnknownKeys(body, ['sourceEventId', 'newDoorsAt', 'newStartsAt'], fields);
+
+  const sourceEventId = clean(body.sourceEventId);
+  if (!/^[A-Za-z0-9_-]+$/.test(sourceEventId)) {
+    fields.sourceEventId = 'Choose a promotion to duplicate.';
+  }
+
+  const doorsRaw = clean(body.newDoorsAt);
+  const startsRaw = clean(body.newStartsAt);
+
+  let doorsAt: string | undefined;
+  if (doorsRaw.length === 0) fields.newDoorsAt = 'Enter the new doors time.';
+  else {
+    const parsed = londonLocalToUtcIso(doorsRaw);
+    if (!parsed) fields.newDoorsAt = 'That is not a valid local date and time.';
+    else doorsAt = parsed;
+  }
+
+  let startsAt: string | undefined;
+  if (startsRaw.length === 0) fields.newStartsAt = 'Enter the new first act time.';
+  else {
+    const parsed = londonLocalToUtcIso(startsRaw);
+    if (!parsed) fields.newStartsAt = 'That is not a valid local date and time.';
+    else startsAt = parsed;
+  }
+
+  if (doorsAt && startsAt && doorsAt > startsAt) {
+    fields.newDoorsAt = 'Doors cannot open after the first act.';
+  }
+
+  if (Object.values(fields).some(Boolean)) return { ok: false, fields };
+  return {
+    ok: true,
+    value: { sourceEventId, doorsAt: doorsAt as string, startsAt: startsAt as string },
+  };
+}
+
 /** Validate a venue create/update payload against an explicit allowlist. */
 export function parseVenueInput(
   payload: unknown,
