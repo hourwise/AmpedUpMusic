@@ -106,6 +106,57 @@ const ROLE_OPTIONS = [
     </form>
   </section>
 
+  <section class="upload-panel surface" id="gallery-upload" aria-labelledby="gallery-upload-heading">
+    <h2 class="display display-sm" id="gallery-upload-heading">Add a gallery set</h2>
+    <p class="add-intro">
+      Choose several photographs for one gig. Each one needs its own description, and the order
+      you pick them in is the order they appear on the site.
+    </p>
+
+    <form class="upload-form" data-gallery-form enctype="multipart/form-data">
+      <div class="upload-grid">
+        <Field as="select" name="galleryEventId" label="Which gig" required options={GIG_OPTIONS} />
+        <Field
+          name="galleryCredit"
+          label="Photographer"
+          value={SITE.photographyPartner.name}
+          hint="Applied to the whole batch unless overridden per photograph."
+        />
+      </div>
+
+      <input
+        type="file"
+        name="galleryFiles"
+        data-gallery-files
+        accept="image/jpeg,image/png,image/webp,image/avif"
+        multiple
+        required
+      />
+      <ul class="gallery-alt-list" data-gallery-alt-list></ul>
+
+      <div class="upload-actions">
+        <Button type="submit" variant="volt" size="md" data-gallery-submit>Upload gallery</Button>
+      </div>
+      <p class="form-feedback" data-gallery-feedback role="status" aria-live="polite" hidden></p>
+    </form>
+
+    <form class="upload-form" data-photography-form>
+      <h3 class="add-artist-title">Photography details for a gig</h3>
+      <div class="upload-grid">
+        <Field as="select" name="photoEventId" label="Which gig" required options={GIG_OPTIONS} />
+        <Field name="photoCredit" label="Credit line" hint="Shown under the gallery." />
+        <Field name="photoGalleryUrl" label="Full gallery link" type="url" />
+        <Field name="photoPhotographerUrl" label="Photographer link" type="url" />
+      </div>
+      <div class="upload-actions">
+        <Button type="submit" variant="outline" size="md" data-photography-submit>
+          Save photography details
+        </Button>
+      </div>
+      <p class="form-feedback" data-photography-feedback role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+
   {
     withAssets.length > 0 ? (
       withAssets.map((set) => (
@@ -122,9 +173,9 @@ const ROLE_OPTIONS = [
             </p>
           </header>
 
-          <ul class="media-list">
+          <ul class="media-list" data-gallery-set={set.gig.id}>
             {set.assets.map((asset) => (
-              <li class="media-item">
+              <li class="media-item" data-gallery-item={asset.id} data-gallery-role={asset.role}>
                 <img src={asset.url} alt={asset.alt} loading="lazy" decoding="async" />
                 <div class="media-meta">
                   <p class="media-role">{asset.role}</p>
@@ -133,6 +184,28 @@ const ROLE_OPTIONS = [
                   </label>
                   <textarea id={`alt-${asset.id}`} class="media-alt" rows={2}>{asset.alt}</textarea>
                   <div class="media-actions">
+                    {asset.role === 'gallery' && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          data-gallery-move="-1"
+                          aria-label={`Move ${asset.alt} earlier`}
+                        >
+                          Up
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          data-gallery-move="1"
+                          aria-label={`Move ${asset.alt} later`}
+                        >
+                          Down
+                        </Button>
+                      </>
+                    )}
                     <Button
                       variant="danger"
                       size="sm"
@@ -228,6 +301,168 @@ const ROLE_OPTIONS = [
       else say('That image could not be removed.', 'error');
     });
   });
+
+  // --- AMPED-05B: gallery batch upload with per-file alt text --------------
+  const galleryForm = document.querySelector<HTMLFormElement>('[data-gallery-form]');
+  const galleryAltList = document.querySelector<HTMLElement>('[data-gallery-alt-list]');
+  const galleryFeedback = document.querySelector<HTMLElement>('[data-gallery-feedback]');
+  const gallerySubmit = document.querySelector<HTMLButtonElement>('[data-gallery-submit]');
+
+  const gallerySay = (message: string, tone: 'ok' | 'error') => {
+    if (!galleryFeedback) return;
+    galleryFeedback.textContent = message;
+    galleryFeedback.dataset.tone = tone;
+    galleryFeedback.hidden = false;
+  };
+
+  galleryForm
+    ?.querySelector('[data-gallery-files]')
+    ?.addEventListener('change', (event) => {
+      const files = Array.from((event.target as HTMLInputElement).files ?? []);
+      if (!galleryAltList) return;
+      galleryAltList.innerHTML = '';
+      files.forEach((file, index) => {
+        const item = document.createElement('li');
+        item.className = 'gallery-alt-item';
+        const name = document.createElement('p');
+        name.textContent = `${index + 1}. ${file.name}`;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Describe this photograph';
+        input.dataset.galleryAlt = String(index);
+        item.appendChild(name);
+        item.appendChild(input);
+        galleryAltList.appendChild(item);
+      });
+    });
+
+  galleryForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const files = Array.from(
+      galleryForm.querySelector<HTMLInputElement>('[data-gallery-files]')?.files ?? [],
+    );
+    const eventId = (galleryForm.querySelector('[name="galleryEventId"]') as HTMLSelectElement | null)?.value ?? '';
+    const sharedCredit =
+      (galleryForm.querySelector('[name="galleryCredit"]') as HTMLInputElement | null)?.value.trim() ?? '';
+    if (!eventId || files.length === 0) {
+      gallerySay('Choose a gig and at least one photograph.', 'error');
+      return;
+    }
+
+    const manifest = files.map((_, index) => {
+      const alt = (
+        galleryForm.querySelector(`[data-gallery-alt="${index}"]`) as HTMLInputElement | null
+      )?.value.trim() ?? '';
+      return { alt, credit: sharedCredit };
+    });
+    const blank = manifest.findIndex((entry) => entry.alt.length === 0);
+    if (blank >= 0) {
+      gallerySay('Every photograph needs its own description.', 'error');
+      return;
+    }
+
+    const body = new FormData();
+    body.append('eventId', eventId);
+    body.append('manifest', JSON.stringify(manifest));
+    for (const file of files) body.append('files', file);
+
+    if (gallerySubmit) gallerySubmit.disabled = true;
+    try {
+      const response = await fetch('/api/admin/media/gallery', { method: 'POST', body });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        fields?: Record<string, string>;
+      };
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.fields
+            ? Object.values(data.fields).filter(Boolean).join(' ')
+            : 'Those photographs could not be uploaded.',
+        );
+      }
+      window.location.reload();
+    } catch (error) {
+      if (gallerySubmit) gallerySubmit.disabled = false;
+      gallerySay(error instanceof Error ? error.message : 'Upload failed.', 'error');
+    }
+  });
+
+  // --- AMPED-05B: reorder a gallery ----------------------------------------
+  document.querySelectorAll<HTMLElement>('[data-gallery-set]').forEach((list) => {
+    const eventId = list.dataset.gallerySet ?? '';
+    list.addEventListener('click', async (event) => {
+      const target = event.target as HTMLElement;
+      const move = target.closest<HTMLElement>('[data-gallery-move]');
+      if (!move) return;
+      const item = move.closest<HTMLElement>('[data-gallery-item]');
+      if (!item) return;
+      const direction = Number(move.dataset.galleryMove);
+      if (direction < 0 && item.previousElementSibling) {
+        list.insertBefore(item, item.previousElementSibling);
+      } else if (direction > 0 && item.nextElementSibling) {
+        list.insertBefore(item.nextElementSibling, item);
+      }
+
+      const assetIds = Array.from(
+        list.querySelectorAll<HTMLElement>('[data-gallery-role="gallery"]'),
+      ).map((row) => row.dataset.galleryItem ?? '');
+      const response = await fetch('/api/admin/media/gallery/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, assetIds }),
+      });
+      if (!response.ok) {
+        gallerySay('That order could not be saved. Reload and try again.', 'error');
+        return;
+      }
+      window.location.reload();
+    });
+  });
+
+  // --- AMPED-05B: event photography metadata -------------------------------
+  const photographyForm = document.querySelector<HTMLFormElement>('[data-photography-form]');
+  const photographyFeedback = document.querySelector<HTMLElement>('[data-photography-feedback]');
+
+  photographyForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const eventId = (photographyForm.querySelector('[name="photoEventId"]') as HTMLSelectElement | null)?.value ?? '';
+    const payload = {
+      eventId,
+      credit: (photographyForm.querySelector('[name="photoCredit"]') as HTMLInputElement | null)?.value.trim() ?? '',
+      galleryUrl: (photographyForm.querySelector('[name="photoGalleryUrl"]') as HTMLInputElement | null)?.value.trim() ?? '',
+      photographerUrl: (photographyForm.querySelector('[name="photoPhotographerUrl"]') as HTMLInputElement | null)?.value.trim() ?? '',
+    };
+    try {
+      const response = await fetch('/api/admin/media/photography', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        fields?: Record<string, string>;
+      };
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.fields
+            ? Object.values(data.fields).filter(Boolean).join(' ')
+            : 'Those details could not be saved.',
+        );
+      }
+      if (photographyFeedback) {
+        photographyFeedback.textContent = 'Photography details saved.';
+        photographyFeedback.dataset.tone = 'ok';
+        photographyFeedback.hidden = false;
+      }
+    } catch (error) {
+      if (photographyFeedback) {
+        photographyFeedback.textContent =
+          error instanceof Error ? error.message : 'Could not save those details.';
+        photographyFeedback.dataset.tone = 'error';
+        photographyFeedback.hidden = false;
+      }
+    }
+  });
 </script>
 
 <style>
@@ -251,6 +486,26 @@ const ROLE_OPTIONS = [
   .upload-actions {
     display: flex;
     justify-content: flex-end;
+  }
+
+  .gallery-alt-list {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .gallery-alt-item {
+    display: grid;
+    gap: var(--s-1);
+    font-size: var(--step--2);
+    color: var(--text-muted);
+  }
+
+  .gallery-alt-item input {
+    padding: var(--s-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-xs);
+    background: var(--ink-inset);
+    color: var(--text);
   }
 
   .form-feedback {

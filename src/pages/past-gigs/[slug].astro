@@ -18,7 +18,7 @@ import SocialLinks from '@/components/site/SocialLinks.astro';
 import NotFound from '@/components/site/NotFound.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import Section from '@/components/ui/Section.astro';
-import { getServices } from '@/services/index.ts';
+import { getGalleryReads, getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd, musicEventJsonLd } from '@/lib/seo.ts';
 import { paragraphs } from '@/lib/text.ts';
 import { SITE } from '@/lib/site.ts';
@@ -40,6 +40,12 @@ if (!event) {
 const past = event ? await services.events.listPast(4) : [];
 const more = event ? past.filter((e) => e.id !== event.id).slice(0, 3) : [];
 const body = event ? paragraphs(event.description) : [];
+
+// AMPED-05B: the event's gallery in its persisted operator order, read through
+// the media service (EventView.gallery is left as-is; see the slice report).
+const gallery = event
+  ? ((await getGalleryReads().listGalleryForEvents([event.id])).get(event.id) ?? [])
+  : [];
 
 const description = event
   ? `${event.title} at ${event.venue.name}, ${event.dateLabel}. Photographs and line-up from the night.`
@@ -83,9 +89,9 @@ const description = event
 
           <section aria-labelledby="gallery-heading" class="past-block">
             <h2 class="display display-sm" id="gallery-heading">Photographs</h2>
-            {event.gallery.length > 0 ? (
+            {gallery.length > 0 ? (
               <GalleryGrid
-                assets={event.gallery}
+                assets={gallery}
                 featureFirst
                 credit={event.photography?.credit}
                 creditUrl={event.photography?.photographerUrl}

@@ -206,6 +206,14 @@ export function getPublicMediaObject(
   return getAdminMediaMutations().getObject(id);
 }
 
+/**
+ * AMPED-05B gallery reads for pages that need several events' galleries in one
+ * bounded query (the global /gallery page). Same bindings, same media service.
+ */
+export function getGalleryReads(): Pick<MediaMutationService, 'listGalleryForEvents'> {
+  return getAdminMediaMutations();
+}
+
 export function getAdminGigMutations(): GigMutationService {
   if (!database) {
     throw new Error(
@@ -219,3 +227,4 @@ export function getAdminGigMutations(): GigMutationService {
 
 export type { Services } from './contracts.ts';
 export * from './contracts.ts';
+export type { PhotographyFields, MediaMutationService } from './d1/media.ts';

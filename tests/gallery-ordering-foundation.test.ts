@@ -14,7 +14,6 @@ import { openEphemeralDatabase } from '../src/db/local.ts';
 import { migrate, readAppliedMigrations } from '../src/db/migrations.ts';
 import { applySeed } from '../src/db/seed.ts';
 import { createD1MediaService } from '../src/services/d1/media.ts';
-import { createServices } from '../src/services/index.ts';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -146,31 +145,48 @@ describe('AMPED-05B0 gallery ordering foundation', () => {
     await db.prepare('update media_assets set gallery_position = null where id = ?').bind(target).run();
   });
 
-  it('leaves gallery reads exactly as they were, even with positions set', async () => {
+  it('keeps the legacy order while every position is NULL', async () => {
+    // AMPED-05B now honours gallery_position, so this foundation assertion is
+    // about the NULL baseline only: with no explicit positions the read order
+    // is exactly the id order the site always used.
     const media = createD1MediaService(db);
+    await db.prepare('update media_assets set gallery_position = null').run();
 
     const baseline = await media.listGallery();
     expect(baseline.length).toBeGreaterThan(0);
-    const baselineIds = baseline.map((asset) => asset.id);
 
-    // Setting an explicit position must not change the current ordering logic.
-    await db.prepare("update media_assets set gallery_position = 999 where id = 'med_gal_01'").run();
-    await db.prepare("update media_assets set gallery_position = 0 where id = 'med_gal_12'").run();
-
-    const after = await media.listGallery();
-    expect(after.map((asset) => asset.id)).toEqual(baselineIds);
-
-    await db.prepare('update media_assets set gallery_position = null where id in (?, ?)').bind('med_gal_01', 'med_gal_12').run();
+    const perEvent = new Map<string, string[]>();
+    for (const asset of baseline) {
+      const key = asset.eventId ?? '';
+      const list = perEvent.get(key) ?? [];
+      list.push(asset.id);
+      perEvent.set(key, list);
+    }
+    for (const ids of perEvent.values()) {
+      expect(ids).toEqual([...ids].sort());
+    }
   });
 
-  it('leaves the public EventView gallery unchanged', async () => {
-    const services = createServices(db);
-    const before = await services.events.getBySlug('hollow-coast-parr-street-hall');
-    const beforeIds = before?.gallery.map((asset) => asset.id);
+  it('orders a gallery by the persisted position once one is set', async () => {
+    const media = createD1MediaService(db);
+    await db
+      .prepare("update media_assets set gallery_position = 2 where id = 'med_gal_01'")
+      .run();
+    await db
+      .prepare("update media_assets set gallery_position = 0 where id = 'med_gal_02'")
+      .run();
 
-    await db.prepare("update media_assets set gallery_position = 1 where event_id = 'evt_hollow_coast_past'").run();
-    const after = await services.events.getBySlug('hollow-coast-parr-street-hall');
+    const ordered = (await media.listGallery())
+      .filter((asset) => asset.eventId === 'evt_hollow_coast_past')
+      .map((asset) => asset.id);
 
-    expect(after?.gallery.map((asset) => asset.id)).toEqual(beforeIds);
+    // Positioned rows come first in ascending order; the NULL row follows.
+    expect(ordered[0]).toBe('med_gal_02');
+    expect(ordered[1]).toBe('med_gal_01');
+    expect(ordered).toContain('med_gal_03');
+
+    await db
+      .prepare("update media_assets set gallery_position = null where id in ('med_gal_01','med_gal_02')")
+      .run();
   });
 });

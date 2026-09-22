@@ -11,16 +11,21 @@ import PageHeader from '@/components/site/PageHeader.astro';
 import GalleryGrid from '@/components/gallery/GalleryGrid.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import Button from '@/components/ui/Button.astro';
-import { getServices } from '@/services/index.ts';
+import { getGalleryReads, getServices } from '@/services/index.ts';
 import { breadcrumbJsonLd } from '@/lib/seo.ts';
 import { SITE } from '@/lib/site.ts';
 import { applyPublicCache } from './gigs/_rendering.ts';
 
 const services = getServices();
 applyPublicCache(Astro.response, 'listing');
+// AMPED-05B: only public past events, and one bounded media query for every
+// event's gallery in its persisted operator order.
 const past = await services.events.listPast();
-const withGalleries = past.filter((event) => event.gallery.length > 0);
-const total = withGalleries.reduce((sum, event) => sum + event.gallery.length, 0);
+const galleries = await getGalleryReads().listGalleryForEvents(past.map((event) => event.id));
+const withGalleries = past
+  .map((event) => ({ event, assets: galleries.get(event.id) ?? [] }))
+  .filter((set) => set.assets.length > 0);
+const total = withGalleries.reduce((sum, set) => sum + set.assets.length, 0);
 ---
 
 <SiteLayout
@@ -56,7 +61,7 @@ const total = withGalleries.reduce((sum, event) => sum + event.gallery.length, 0
           actionLabel="See what is coming up"
         />
       ) : (
-        withGalleries.map((event) => (
+        withGalleries.map(({ event, assets }) => (
           <section class="gallery-set" aria-labelledby={`set-${event.slug}`}>
             <header class="gallery-set-head">
               <div>
@@ -68,10 +73,10 @@ const total = withGalleries.reduce((sum, event) => sum + event.gallery.length, 0
                   {event.venue.name}, {event.venue.city}
                 </p>
               </div>
-              <p class="gallery-set-count">{event.gallery.length} photographs</p>
+              <p class="gallery-set-count">{assets.length} photographs</p>
             </header>
             <GalleryGrid
-              assets={event.gallery}
+              assets={assets}
               credit={event.photography?.credit}
               creditUrl={event.photography?.photographerUrl}
             />
