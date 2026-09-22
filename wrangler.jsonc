@@ -48,10 +48,18 @@
       "database_name": "ampedup",
       "remote": false
     }
+  ],
+
+  // AMPED-05A: private R2 for uploaded media. Wrangler simulates this locally
+  // under `.wrangler/state`; there is no `remote: true`, no public bucket and
+  // no r2.dev URL. The real development bucket name is a placeholder for the
+  // later remote-environment setup - this slice creates no Cloudflare resource.
+  // Uploaded images are served only through /media/<id>.
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "ampedup-music-media-dev" }
   ]
 
   // --- Reserved for later slices; DO NOT enable early -----------------------
-  // AMPED-05A: "r2_buckets":   [{ "binding": "MEDIA", "bucket_name": "ampedup-media" }],
   // AMPED-06B: "kv_namespaces": [{ "binding": "RESERVATIONS", "id": "<created-in-slice>" }],
   // AMPED-06B: "queues": { "producers": [{ "binding": "RESERVATION_SWEEP", "queue": "ampedup-reservation-sweep" }] }
 }

@@ -15,7 +15,6 @@ import AdminLayout from '@/layouts/AdminLayout.astro';
 import Button from '@/components/ui/Button.astro';
 import Field from '@/components/ui/Field.astro';
 import Callout from '@/components/ui/Callout.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import { getServices } from '@/services/index.ts';
 import { SITE } from '@/lib/site.ts';
@@ -67,30 +66,44 @@ const ROLE_OPTIONS = [
   <section class="upload-panel surface" id="upload" aria-labelledby="upload-heading">
     <h2 class="display display-sm" id="upload-heading">Add photos</h2>
 
-    <div class="dropzone">
-      <p class="dropzone-title">Drop photographs here</p>
-      <p class="dropzone-hint">
-        JPG or PNG, up to 8&nbsp;MB each. You can select as many as you like at once.
-      </p>
-      <Button variant="outline" size="md">Choose files</Button>
-    </div>
+    <form class="upload-form" data-media-form enctype="multipart/form-data">
+      <div class="dropzone">
+        <p class="dropzone-title">Choose a photograph</p>
+        <p class="dropzone-hint">
+          JPEG, PNG, WebP or AVIF, up to 8&nbsp;MB. The image is checked before it is stored.
+        </p>
+        <input
+          type="file"
+          name="file"
+          data-media-file
+          accept="image/jpeg,image/png,image/webp,image/avif"
+          required
+        />
+      </div>
 
-    <div class="upload-grid">
-      <Field as="select" name="eventId" label="Which gig are these from" required options={GIG_OPTIONS} />
-      <Field as="select" name="role" label="What are they" required options={ROLE_OPTIONS} />
+      <div class="upload-grid">
+        <Field as="select" name="eventId" label="Which gig is it from" options={GIG_OPTIONS} />
+        <Field as="select" name="role" label="What is it" required options={ROLE_OPTIONS} />
+        <Field
+          name="credit"
+          label="Photographer"
+          value={SITE.photographyPartner.name}
+          hint="Credited under the gallery."
+        />
+      </div>
+
       <Field
-        name="credit"
-        label="Photographer"
-        value={SITE.photographyPartner.name}
-        hint="Credited under the gallery."
+        name="alt"
+        label="Description"
+        required
+        hint="What is in the image, for anyone who cannot see it."
       />
-    </div>
 
-    <ScaffoldNote slice="AMPED-05A">
-      Uploads are not connected. In V1 each file goes to Cloudflare R2 under a safe unique key with
-      a MIME and size check, and the record stores dimensions, credit and alt text. AMPED-05B links
-      the set to the event gallery and the AnyaParallax gallery URL.
-    </ScaffoldNote>
+      <div class="upload-actions">
+        <Button type="submit" variant="volt" size="md" data-media-submit>Upload image</Button>
+      </div>
+      <p class="form-feedback" data-media-feedback role="status" aria-live="polite" hidden></p>
+    </form>
   </section>
 
   {
@@ -120,8 +133,15 @@ const ROLE_OPTIONS = [
                   </label>
                   <textarea id={`alt-${asset.id}`} class="media-alt" rows={2}>{asset.alt}</textarea>
                   <div class="media-actions">
-                    <Button variant="ghost" size="sm">Save</Button>
-                    <Button variant="danger" size="sm">Remove</Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      type="button"
+                      data-delete-media
+                      data-asset-id={asset.id}
+                    >
+                      Remove
+                    </Button>
                   </div>
                 </div>
               </li>
@@ -149,12 +169,101 @@ const ROLE_OPTIONS = [
   }
 </AdminLayout>
 
+<script>
+  // AMPED-05A: real protected upload and delete against the local R2 bucket.
+  const form = document.querySelector<HTMLFormElement>('[data-media-form]');
+  const feedback = document.querySelector<HTMLElement>('[data-media-feedback]');
+  const submit = document.querySelector<HTMLButtonElement>('[data-media-submit]');
+
+  const say = (message: string, tone: 'ok' | 'error') => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.tone = tone;
+    feedback.hidden = false;
+  };
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = form.querySelector<HTMLInputElement>('[data-media-file]')?.files?.[0];
+    if (!file) {
+      say('Choose an image first.', 'error');
+      return;
+    }
+
+    const body = new FormData();
+    body.append('file', file);
+    body.append('role', (form.querySelector('[name="role"]') as HTMLSelectElement | null)?.value ?? '');
+    body.append('alt', (form.querySelector('[name="alt"]') as HTMLInputElement | null)?.value.trim() ?? '');
+    body.append('credit', (form.querySelector('[name="credit"]') as HTMLInputElement | null)?.value.trim() ?? '');
+    body.append('eventId', (form.querySelector('[name="eventId"]') as HTMLSelectElement | null)?.value ?? '');
+
+    if (submit) submit.disabled = true;
+    try {
+      const response = await fetch('/api/admin/media', { method: 'POST', body });
+      const data = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        fields?: Record<string, string>;
+      };
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          data.fields
+            ? Object.values(data.fields).filter(Boolean).join(' ')
+            : 'That image could not be uploaded.',
+        );
+      }
+      window.location.reload();
+    } catch (error) {
+      if (submit) submit.disabled = false;
+      say(error instanceof Error ? error.message : 'Upload failed.', 'error');
+    }
+  });
+
+  document.querySelectorAll<HTMLElement>('[data-delete-media]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.assetId ?? '';
+      if (!id || !window.confirm('Remove this image? This cannot be undone.')) return;
+      const response = await fetch(`/api/admin/media/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = (await response.json().catch(() => ({}))) as { ok?: boolean };
+      if (response.ok && data.ok) window.location.reload();
+      else say('That image could not be removed.', 'error');
+    });
+  });
+</script>
+
 <style>
   .upload-panel {
     display: grid;
     gap: var(--s-4);
     padding: var(--s-5);
     scroll-margin-top: calc(var(--header-h) + var(--s-6));
+  }
+
+  .upload-form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .upload-form input[type='file'] {
+    color: var(--text-muted);
+    font-size: var(--step--2);
+  }
+
+  .upload-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .form-feedback {
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .form-feedback[data-tone='ok'] {
+    color: var(--go);
+  }
+
+  .form-feedback[data-tone='error'] {
+    color: var(--stop);
   }
 
   .dropzone {

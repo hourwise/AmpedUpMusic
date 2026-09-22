@@ -45,7 +45,12 @@ import { createD1DoorService } from './d1/door.ts';
 import { createD1EnquiryService } from './d1/enquiries.ts';
 import { createD1EventRepository, createD1GigMutations, type GigMutationService } from './d1/events.ts';
 import { createD1MailingListService } from './d1/mailing-list.ts';
-import { createD1MediaService } from './d1/media.ts';
+import {
+  createD1MediaMutations,
+  createD1MediaService,
+  createR2ObjectStore,
+  type MediaMutationService,
+} from './d1/media.ts';
 import { createD1OrderService } from './d1/orders.ts';
 import { createD1SocialService } from './d1/social.ts';
 import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
@@ -92,7 +97,20 @@ async function boundDatabase(): Promise<D1Database | undefined> {
   }
 }
 
+/** Read the private `MEDIA` R2 binding. Never a public bucket. */
+async function boundMediaBucket(): Promise<R2Bucket | undefined> {
+  try {
+    const runtime = (await import('cloudflare:workers')) as unknown as {
+      env?: { MEDIA?: R2Bucket };
+    };
+    return runtime.env?.MEDIA;
+  } catch {
+    return undefined;
+  }
+}
+
 const database = await boundDatabase();
+const mediaBucket = await boundMediaBucket();
 
 let cached: Services | null = null;
 let cachedGigMutations: GigMutationService | null = null;
@@ -100,6 +118,7 @@ let cachedEntityMutations: {
   artists: ArtistMutationService;
   venues: VenueMutationService;
 } | null = null;
+let cachedMediaMutations: MediaMutationService | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -156,6 +175,35 @@ export function getAdminEntityMutations(): {
     venues: createD1VenueMutations(database),
   };
   return cachedEntityMutations;
+}
+
+/**
+ * The AMPED-05A media mutation seam (upload / attach / delete), used by the
+ * protected /api/admin/media routes. Resolves the private R2 `MEDIA` binding
+ * here in the service layer; no route imports `cloudflare:workers`.
+ */
+export function getAdminMediaMutations(): MediaMutationService {
+  if (!database || !mediaBucket) {
+    throw new Error(
+      'The DB and MEDIA bindings are required for media writes. ' +
+        'An unbound runtime must not accept uploads.',
+    );
+  }
+  cachedMediaMutations ??= createD1MediaMutations(
+    database,
+    createR2ObjectStore(mediaBucket),
+  );
+  return cachedMediaMutations;
+}
+
+/**
+ * Public object delivery for /media/<id>. The route only knows the asset id;
+ * the R2 key stays inside the service layer.
+ */
+export function getPublicMediaObject(
+  id: string,
+): Promise<{ body: ReadableStream; mime: string; byteSize: number } | null> {
+  return getAdminMediaMutations().getObject(id);
 }
 
 export function getAdminGigMutations(): GigMutationService {

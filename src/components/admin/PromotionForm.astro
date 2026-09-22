@@ -26,7 +26,6 @@
 import Field from '@/components/ui/Field.astro';
 import Button from '@/components/ui/Button.astro';
 import AdminIcon from '@/components/admin/AdminIcon.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.astro';
 import PosterImage from '@/components/events/PosterImage.astro';
 import { formatPence } from '@/lib/money.ts';
@@ -505,9 +504,23 @@ const ticketRows = event?.ticketTypes.length
         <p class="upload-label">Poster</p>
         <PosterImage src={event?.posterUrl} alt={event?.posterAlt} title={event?.title ?? 'New gig'} />
         <div class="upload-drop">
-          <p>Drop an image here, or</p>
-          <Button variant="outline" size="sm">Choose a file</Button>
-          <p class="upload-hint">Tall image, roughly 3 wide by 4 tall. JPG or PNG, up to 8&nbsp;MB.</p>
+          <p>Tall image, roughly 3 wide by 4 tall. JPEG, PNG, WebP or AVIF, up to 8&nbsp;MB.</p>
+          {
+            isEdit ? (
+              <div class="artwork-upload-row">
+                <input
+                  type="file"
+                  data-artwork-file="poster"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
+                />
+                <Button variant="outline" size="sm" type="button" data-artwork-upload="poster">
+                  Upload poster
+                </Button>
+              </div>
+            ) : (
+              <p class="upload-hint">Save the draft first, then upload the poster here.</p>
+            )
+          }
         </div>
         <Field
           name="posterAlt"
@@ -527,19 +540,32 @@ const ticketRows = event?.ticketTypes.length
           ratio="wide"
         />
         <div class="upload-drop">
-          <p>Drop an image here, or</p>
-          <Button variant="outline" size="sm">Choose a file</Button>
-          <p class="upload-hint">Wide image, roughly 16 by 9. A crowd shot works best.</p>
+          <p>Wide image, roughly 16 by 9. A crowd shot works best.</p>
+          {
+            isEdit ? (
+              <div class="artwork-upload-row">
+                <input
+                  type="file"
+                  data-artwork-file="hero"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
+                />
+                <Button variant="outline" size="sm" type="button" data-artwork-upload="hero">
+                  Upload hero
+                </Button>
+              </div>
+            ) : (
+              <p class="upload-hint">Save the draft first, then upload the hero image here.</p>
+            )
+          }
         </div>
         <Field name="heroAlt" label="Describe this image" value={event?.heroAlt} />
       </div>
     </div>
 
-    <ScaffoldNote slice="AMPED-05A">
-      Uploads are not connected. In V1 the file goes to Cloudflare R2 with a safe unique name, a
-      size and type check, and the alt text is stored with it. Alt text is required before a gig can
-      be published.
-    </ScaffoldNote>
+    <p class="upload-hint upload-note">
+      Uploads go to private R2 storage and are served back through the site. The image type is
+      checked from its contents, and the description below is required.
+    </p>
 
     <fieldset class="socials surface-inset">
       <legend class="ticket-legend">Links for this gig</legend>
@@ -903,6 +929,56 @@ const ticketRows = event?.ticketTypes.length
       }
     });
 
+  // AMPED-05A: upload poster/hero for an existing promotion, then reload so the
+  // new artwork reference is read back from D1.
+  document.querySelectorAll<HTMLElement>('[data-artwork-upload]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const role = button.dataset.artworkUpload ?? '';
+      if (!eventId) {
+        say('Save the draft first, then upload artwork.', 'error');
+        return;
+      }
+      const fileInput = form?.querySelector<HTMLInputElement>(`[data-artwork-file="${role}"]`);
+      const file = fileInput?.files?.[0];
+      if (!file) {
+        say('Choose an image to upload.', 'error');
+        return;
+      }
+      const altField = role === 'poster' ? 'posterAlt' : 'heroAlt';
+      const alt = value(altField);
+      if (!alt) {
+        say('Add a description for the image first.', 'error');
+        return;
+      }
+
+      const body = new FormData();
+      body.append('file', file);
+      body.append('role', role);
+      body.append('alt', alt);
+      body.append('eventId', eventId);
+
+      (button as HTMLButtonElement).disabled = true;
+      try {
+        const response = await fetch('/api/admin/media', { method: 'POST', body });
+        const data = (await response.json().catch(() => ({}))) as {
+          ok?: boolean;
+          fields?: Record<string, string>;
+        };
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.fields
+              ? Object.values(data.fields).filter(Boolean).join(' ')
+              : 'That image could not be uploaded.',
+          );
+        }
+        window.location.reload();
+      } catch (error) {
+        (button as HTMLButtonElement).disabled = false;
+        say(error instanceof Error ? error.message : 'Upload failed.', 'error');
+      }
+    });
+  });
+
   form?.addEventListener('submit', (event) => event.preventDefault());
 </script>
 
@@ -1136,6 +1212,23 @@ const ticketRows = event?.ticketTypes.length
     color: var(--text-faint);
     text-transform: uppercase;
     letter-spacing: var(--tracking-label);
+  }
+
+  .artwork-upload-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    align-items: center;
+  }
+
+  .artwork-upload-row input[type='file'] {
+    max-width: 100%;
+    color: var(--text-muted);
+    font-size: var(--step--2);
+  }
+
+  .upload-note {
+    max-width: 70ch;
   }
 
   .add-artist-new {
