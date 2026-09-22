@@ -139,6 +139,7 @@ describe('migration runner', () => {
       '0005',
       '0006',
       '0007',
+      '0008',
     ]);
     expect(result.alreadyApplied).toEqual([]);
 
@@ -154,7 +155,7 @@ describe('migration runner', () => {
       )
       .all<{ id: string; name: string; checksum: string; applied_at: string }>();
 
-    expect(applied.length).toBe(7);
+    expect(applied.length).toBe(8);
     expect(withChecksums.results.map((row) => row.name)).toEqual(
       loadMigrations().map((migration) => migration.name),
     );
@@ -170,7 +171,7 @@ describe('migration runner', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(7);
+    expect(second.alreadyApplied).toHaveLength(8);
 
     // Not merely "no error": the ledger must be untouched, timestamps and all.
     expect(await readAppliedMigrations(db)).toEqual(before);
@@ -180,7 +181,7 @@ describe('migration runner', () => {
     const ids = loadMigrations().map((migration) => migration.id);
     expect(ids).toEqual([...ids].sort());
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(7);
+    expect(ids).toHaveLength(8);
   });
 
   it('refuses to run if a migration that has already been applied is edited', async () => {
@@ -240,7 +241,7 @@ describe('migration runner', () => {
 
     const rebuilt = await migrate(db);
 
-    expect(rebuilt.applied).toHaveLength(7);
+    expect(rebuilt.applied).toHaveLength(8);
     expect(await schemaObjects(db)).toEqual(expected);
   });
 });
@@ -1066,7 +1067,7 @@ describe('integrity constraints', () => {
     const ledger = await db
       .prepare('select count(*) as n from schema_migrations')
       .first<{ n: number }>();
-    expect(ledger?.n).toBe(7);
+    expect(ledger?.n).toBe(8);
   });
 });
 
