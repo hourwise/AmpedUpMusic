@@ -1,0 +1,447 @@
+---
+/**
+ * Curated social posts (AMPED-05C).
+ *
+ * The operator pastes a link, chooses the network and decides what appears on
+ * the homepage. Nothing is fetched, crawled or scraped: the site only ever
+ * shows what was typed here, and the caption is rendered as plain text.
+ *
+ * Featured order is persisted (`featured_position`); the first managed change
+ * normalises the legacy id-ordered rows to explicit 0..n-1.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import Field from '@/components/ui/Field.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getAdminSocial, getServices } from '@/services/index.ts';
+import { SOCIAL_NETWORKS } from '@/services/d1/social.ts';
+import { SOCIAL_LABEL } from '@/lib/text.ts';
+
+const services = getServices();
+const social = getAdminSocial();
+const posts = await social.listAdmin();
+const [gigs, galleryAssets] = await Promise.all([
+  services.admin.listAll(),
+  services.media.listGallery(60),
+]);
+
+const featured = posts.filter((entry) => entry.view.post.featured);
+const others = posts.filter((entry) => !entry.view.post.featured);
+
+const NETWORK_OPTIONS = [
+  { value: '', label: 'Choose a network...' },
+  ...SOCIAL_NETWORKS.map((network) => ({ value: network, label: SOCIAL_LABEL[network] })),
+];
+const GIG_OPTIONS = [
+  { value: '', label: 'No gig attached' },
+  ...gigs.map((gig) => ({ value: gig.id, label: `${gig.title} - ${gig.shortDateLabel}` })),
+];
+const THUMB_OPTIONS = [
+  { value: '', label: 'No thumbnail' },
+  ...galleryAssets.map((asset) => ({ value: asset.id, label: asset.alt.slice(0, 60) })),
+];
+
+function payload(post: (typeof posts)[number]['view']['post']) {
+  return {
+    url: post.url,
+    network: post.network,
+    caption: post.caption ?? '',
+    thumbnailAssetId: post.thumbnailAssetId ?? '',
+    eventId: post.eventId ?? '',
+    featured: post.featured,
+  };
+}
+---
+
+<AdminLayout
+  title="Socials"
+  subtitle="Hand-picked posts for the homepage strip. Nothing is fetched from the networks - you paste the link and say what it is."
+  wide
+>
+  <Callout tone="volt" label="Manual curation" title="No crawler, no API, no surprises">
+    <p>
+      The site never contacts Instagram, TikTok or anywhere else. Only what you type here is
+      stored, and only featured posts reach the homepage.
+    </p>
+  </Callout>
+
+  <section class="social-panel surface" aria-labelledby="featured-heading">
+    <h2 class="display display-sm" id="featured-heading">Featured on the homepage</h2>
+    {
+      featured.length === 0 ? (
+        <p class="social-hint">Nothing is featured yet. Feature a post below to put it on the homepage.</p>
+      ) : (
+        <ul class="social-featured" data-featured-list>
+          {featured.map((entry, index) => (
+            <li class="social-featured-item" data-featured-item={entry.view.post.id}>
+              <span class="social-order">{index + 1}</span>
+              <span class="social-title">{SOCIAL_LABEL[entry.view.post.network]}</span>
+              <span class="social-url">{entry.view.post.url}</span>
+              <span class="social-featured-actions">
+                <Button variant="ghost" size="sm" type="button" data-featured-move="-1">Up</Button>
+                <Button variant="ghost" size="sm" type="button" data-featured-move="1">Down</Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+    <p class="form-feedback" data-social-feedback role="status" aria-live="polite" hidden></p>
+  </section>
+
+  <section class="social-panel surface" aria-labelledby="all-heading">
+    <h2 class="display display-sm" id="all-heading">All curated posts</h2>
+    {
+      posts.length === 0 ? (
+        <EmptyState
+          title="No social posts yet"
+          body="Paste a link below and it will show up here."
+          actionHref="#add-social"
+          actionLabel="Add a post"
+        />
+      ) : (
+        <ul class="social-list">
+          {[...featured, ...others].map((entry) => (
+            <li
+              class="social-item"
+              data-social-row
+              data-social-id={entry.view.post.id}
+              data-social={JSON.stringify(payload(entry.view.post))}
+            >
+              {entry.view.thumbnailUrl && (
+                <img class="social-thumb" src={entry.view.thumbnailUrl} alt="" loading="lazy" />
+              )}
+              <div class="social-meta">
+                <p class="social-network">{SOCIAL_LABEL[entry.view.post.network]}</p>
+                <p class="social-url">{entry.view.post.url}</p>
+                {entry.view.post.caption && <p class="social-caption">{entry.view.post.caption}</p>}
+              </div>
+              <div class="social-actions">
+                <Button variant="ghost" size="sm" type="button" data-social-edit>Edit</Button>
+                <Button variant="ghost" size="sm" type="button" data-social-feature>
+                  {entry.view.post.featured ? 'Unfeature' : 'Feature'}
+                </Button>
+                <Button variant="danger" size="sm" type="button" data-social-delete>Delete</Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </section>
+
+  <section class="social-panel surface" id="add-social" aria-labelledby="add-social-heading">
+    <h2 class="display display-sm" id="add-social-heading">Add a social post</h2>
+    <form class="social-form" data-social-form>
+      <input type="hidden" name="socialId" data-social-id-input />
+      <div class="social-grid">
+        <Field name="url" label="Link to the post" type="url" required hint="Paste the public post URL." />
+        <Field as="select" name="network" label="Network" required options={NETWORK_OPTIONS} />
+      </div>
+      <Field name="caption" label="Caption" as="textarea" rows={3} hint="Plain text, shown on the homepage." />
+      <div class="social-grid">
+        <Field as="select" name="thumbnailAssetId" label="Thumbnail" options={THUMB_OPTIONS} />
+        <Field as="select" name="eventId" label="Related gig" options={GIG_OPTIONS} />
+      </div>
+      <label class="social-check">
+        <input type="checkbox" name="featured" />
+        <span>Feature this on the homepage</span>
+      </label>
+      <div class="social-form-actions">
+        <Button variant="ghost" size="md" type="button" class="is-hidden" data-social-cancel>Cancel</Button>
+        <Button type="submit" variant="volt" size="md" data-social-save>Save post</Button>
+      </div>
+      <p class="form-feedback" data-social-form-feedback role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+</AdminLayout>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-social-form]');
+  const feedback = document.querySelector<HTMLElement>('[data-social-feedback]');
+  const formFeedback = document.querySelector<HTMLElement>('[data-social-form-feedback]');
+  const idInput = form?.querySelector<HTMLInputElement>('[data-social-id-input]');
+  const saveLabel = form?.querySelector<HTMLElement>('[data-social-save]');
+  const cancel = form?.querySelector<HTMLElement>('[data-social-cancel]');
+  const heading = document.querySelector('#add-social-heading');
+
+  const say = (message: string, tone: 'ok' | 'error') => {
+    if (!formFeedback) return;
+    formFeedback.textContent = message;
+    formFeedback.dataset.tone = tone;
+    formFeedback.hidden = false;
+  };
+
+  const field = (name: string) =>
+    (form?.querySelector(`[name="${name}"]`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)
+      ?.value.trim() ?? '';
+
+  async function call(url: string, method: string, body?: unknown) {
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      id?: string;
+      fields?: Record<string, string>;
+    };
+    if (!response.ok || !data.ok) {
+      throw new Error(
+        data.fields
+          ? Object.values(data.fields).filter(Boolean).join(' ')
+          : 'That could not be saved.',
+      );
+    }
+    return data;
+  }
+
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = idInput?.value ?? '';
+    const body = {
+      url: field('url'),
+      network: field('network'),
+      caption: field('caption'),
+      thumbnailAssetId: field('thumbnailAssetId'),
+      eventId: field('eventId'),
+      featured: (form.querySelector('[name="featured"]') as HTMLInputElement | null)?.checked ?? false,
+    };
+    try {
+      if (id) await call(`/api/admin/social/${encodeURIComponent(id)}`, 'PATCH', body);
+      else await call('/api/admin/social', 'POST', body);
+      window.location.reload();
+    } catch (error) {
+      say(error instanceof Error ? error.message : 'Could not save.', 'error');
+    }
+  });
+
+  document.querySelectorAll<HTMLElement>('[data-social-row]').forEach((row) => {
+    const id = row.dataset.socialId ?? '';
+    const data = JSON.parse(row.dataset.social ?? '{}') as Record<string, unknown>;
+
+    row.querySelector('[data-social-edit]')?.addEventListener('click', () => {
+      if (idInput) idInput.value = id;
+      const set = (name: string, value: unknown) => {
+        const input = form?.querySelector(`[name="${name}"]`) as
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | HTMLSelectElement
+          | null;
+        if (input) input.value = typeof value === 'string' ? value : '';
+      };
+      set('url', data.url);
+      set('network', data.network);
+      set('caption', data.caption);
+      set('thumbnailAssetId', data.thumbnailAssetId);
+      set('eventId', data.eventId);
+      const featuredBox = form?.querySelector('[name="featured"]') as HTMLInputElement | null;
+      if (featuredBox) featuredBox.checked = data.featured === true;
+      if (heading) heading.textContent = 'Edit social post';
+      if (saveLabel) saveLabel.textContent = 'Save changes';
+      cancel?.classList.remove('is-hidden');
+      form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    row.querySelector('[data-social-feature]')?.addEventListener('click', async () => {
+      try {
+        await call(`/api/admin/social/${encodeURIComponent(id)}`, 'PATCH', {
+          url: data.url,
+          network: data.network,
+          caption: data.caption ?? '',
+          thumbnailAssetId: data.thumbnailAssetId ?? '',
+          eventId: data.eventId ?? '',
+          featured: data.featured !== true,
+        });
+        window.location.reload();
+      } catch (error) {
+        if (feedback) {
+          feedback.textContent = error instanceof Error ? error.message : 'Could not update.';
+          feedback.dataset.tone = 'error';
+          feedback.hidden = false;
+        }
+      }
+    });
+
+    row.querySelector('[data-social-delete]')?.addEventListener('click', async () => {
+      if (!window.confirm('Delete this curated post? The original post stays online.')) return;
+      try {
+        await call(`/api/admin/social/${encodeURIComponent(id)}`, 'DELETE');
+        window.location.reload();
+      } catch (error) {
+        if (feedback) {
+          feedback.textContent = error instanceof Error ? error.message : 'Could not delete.';
+          feedback.dataset.tone = 'error';
+          feedback.hidden = false;
+        }
+      }
+    });
+  });
+
+  const featuredList = document.querySelector<HTMLElement>('[data-featured-list]');
+  featuredList?.addEventListener('click', async (event) => {
+    const target = event.target as HTMLElement;
+    const move = target.closest<HTMLElement>('[data-featured-move]');
+    if (!move) return;
+    const item = move.closest<HTMLElement>('[data-featured-item]');
+    if (!item) return;
+    const direction = Number(move.dataset.featuredMove);
+    if (direction < 0 && item.previousElementSibling) {
+      featuredList.insertBefore(item, item.previousElementSibling);
+    } else if (direction > 0 && item.nextElementSibling) {
+      featuredList.insertBefore(item.nextElementSibling, item);
+    }
+    const ids = Array.from(featuredList.querySelectorAll<HTMLElement>('[data-featured-item]')).map(
+      (row) => row.dataset.featuredItem ?? '',
+    );
+    try {
+      await call('/api/admin/social/reorder', 'POST', { ids });
+      window.location.reload();
+    } catch (error) {
+      if (feedback) {
+        feedback.textContent =
+          error instanceof Error ? error.message : 'Could not save that order.';
+        feedback.dataset.tone = 'error';
+        feedback.hidden = false;
+      }
+    }
+  });
+
+  cancel?.addEventListener('click', () => {
+    form?.reset();
+    if (idInput) idInput.value = '';
+    if (heading) heading.textContent = 'Add a social post';
+    if (saveLabel) saveLabel.textContent = 'Save post';
+    cancel.classList.add('is-hidden');
+  });
+
+  form?.addEventListener('reset', () => {
+    if (idInput) idInput.value = '';
+  });
+</script>
+
+<style>
+  .social-panel {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-5);
+  }
+
+  .social-hint {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .social-featured,
+  .social-list {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .social-featured-item,
+  .social-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-raised);
+  }
+
+  .social-order {
+    font-family: var(--font-display);
+    color: var(--volt);
+    min-width: 1.5rem;
+  }
+
+  .social-title,
+  .social-network {
+    font-family: var(--font-display);
+    font-size: var(--step--2);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--volt);
+  }
+
+  .social-url {
+    font-size: var(--step--2);
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  .social-caption {
+    font-size: var(--step--1);
+  }
+
+  .social-meta {
+    display: grid;
+    gap: var(--s-1);
+    min-width: 0;
+    flex: 1 1 16rem;
+  }
+
+  .social-thumb {
+    width: 5rem;
+    height: 5rem;
+    object-fit: cover;
+    border-radius: var(--r-sm);
+    background: var(--ink-inset);
+  }
+
+  .social-actions,
+  .social-featured-actions {
+    display: flex;
+    gap: var(--s-2);
+    margin-left: auto;
+  }
+
+  .social-form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .social-grid {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  @media (min-width: 44rem) {
+    .social-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .social-check {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--step--1);
+  }
+
+  .social-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--s-2);
+  }
+
+  .is-hidden {
+    display: none;
+  }
+
+  .form-feedback {
+    font-size: var(--step--2);
+    font-weight: 600;
+  }
+
+  .form-feedback[data-tone='ok'] {
+    color: var(--go);
+  }
+
+  .form-feedback[data-tone='error'] {
+    color: var(--stop);
+  }
+</style>

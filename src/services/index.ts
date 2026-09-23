@@ -37,7 +37,7 @@
  * cached fixture service because none exists.
  */
 
-import type { Services } from './contracts.ts';
+import type { Services, SocialService } from './contracts.ts';
 import { createD1AdminEventService } from './d1/admin.ts';
 import { createD1ArtistMutations, createD1ArtistService, type ArtistMutationService } from './d1/artists.ts';
 import { createD1AuditService } from './d1/audit.ts';
@@ -52,7 +52,11 @@ import {
   type MediaMutationService,
 } from './d1/media.ts';
 import { createD1OrderService } from './d1/orders.ts';
-import { createD1SocialService } from './d1/social.ts';
+import {
+  createD1SocialMutations,
+  createD1SocialService,
+  type SocialMutationService,
+} from './d1/social.ts';
 import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
 
 /**
@@ -119,6 +123,7 @@ let cachedEntityMutations: {
   venues: VenueMutationService;
 } | null = null;
 let cachedMediaMutations: MediaMutationService | null = null;
+let cachedSocial: (SocialMutationService & SocialService) | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -212,6 +217,23 @@ export function getPublicMediaObject(
  */
 export function getGalleryReads(): Pick<MediaMutationService, 'listGalleryForEvents'> {
   return getAdminMediaMutations();
+}
+
+/**
+ * The AMPED-05C social curation seam, used only by the protected
+ * /api/admin/social routes and the admin page. Resolves its own binding.
+ */
+export function getAdminSocial(): SocialMutationService & SocialService {
+  if (!database) {
+    throw new Error(
+      'The D1 binding "DB" is not available, so social curation cannot run.',
+    );
+  }
+  cachedSocial ??= {
+    ...createD1SocialMutations(database),
+    ...createD1SocialService(database),
+  };
+  return cachedSocial;
 }
 
 export function getAdminGigMutations(): GigMutationService {

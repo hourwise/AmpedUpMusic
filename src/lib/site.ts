@@ -69,6 +69,7 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
   { label: 'Artists', href: '/admin/artists', icon: 'artist' },
   { label: 'Venues', href: '/admin/venues', icon: 'venue' },
   { label: 'Photos', href: '/admin/media', icon: 'photo' },
+  { label: 'Socials', href: '/admin/social', icon: 'photo' },
   { label: 'Enquiries', href: '/admin/enquiries', icon: 'inbox' },
   { label: 'Mailing list', href: '/admin/mailing-list', icon: 'mail' },
   { label: 'Door Mode', href: '/admin/door', icon: 'scan', standalone: true },
