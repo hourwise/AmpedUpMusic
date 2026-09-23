@@ -57,6 +57,9 @@ import {
   createD1SocialService,
   type SocialMutationService,
 } from './d1/social.ts';
+import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
+import { createMockPaymentProvider } from './payments/mock.ts';
+import type { PaymentProvider } from './contracts.ts';
 import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
 
 /**
@@ -124,6 +127,7 @@ let cachedEntityMutations: {
 } | null = null;
 let cachedMediaMutations: MediaMutationService | null = null;
 let cachedSocial: (SocialMutationService & SocialService) | null = null;
+let cachedCheckout: { orders: OrderMutationService; provider: PaymentProvider } | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -234,6 +238,25 @@ export function getAdminSocial(): SocialMutationService & SocialService {
     ...createD1SocialService(database),
   };
   return cachedSocial;
+}
+
+/**
+ * The AMPED-06A checkout seam: the order state machine plus the mock payment
+ * provider. Public checkout routes use this; the provider is swappable for the
+ * SumUp adapter in AMPED-07A without changing callers.
+ */
+export function getCheckout(): {
+  orders: OrderMutationService;
+  provider: PaymentProvider;
+} {
+  if (!database) {
+    throw new Error('The D1 binding "DB" is not available, so checkout cannot run.');
+  }
+  cachedCheckout ??= {
+    orders: createD1OrderMutations(database),
+    provider: createMockPaymentProvider(),
+  };
+  return cachedCheckout;
 }
 
 export function getAdminGigMutations(): GigMutationService {

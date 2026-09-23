@@ -564,11 +564,17 @@ describe('04C API route protection', () => {
       .replace(/\[([^\]]+)\]/g, ':$1');
   }
 
-  it('places every artist/venue API route inside the protected namespace', () => {
+  it('keeps every admin API route protected and allows only the public checkout namespace outside it', () => {
     const all = files(join(root, 'src', 'pages', 'api'));
     expect(all.length).toBeGreaterThan(0);
     for (const file of all) {
       const route = toRoutePath(file);
+      if (route.startsWith('/api/checkout/')) {
+        // AMPED-06A adds the customer checkout routes; they are deliberately
+        // public and must never be Access-protected.
+        expect(isProtectedPath(route), `${file} -> ${route}`).toBe(false);
+        continue;
+      }
       expect(route.startsWith('/api/admin/'), `${file} -> ${route}`).toBe(true);
       expect(isProtectedPath(route), `${file} -> ${route}`).toBe(true);
     }
