@@ -43,15 +43,16 @@ describe('AMPED-05B0 gallery ordering foundation', () => {
       '0006',
       '0007',
       '0008',
+      '0009',
     ]);
-    expect(applied[applied.length - 1]?.name).toBe('0008_gallery_ordering.sql');
+    expect(applied[applied.length - 1]?.name).toBe('0009_social_featured_ordering.sql');
   });
 
   it('is a no-op when run again', async () => {
     const before = await readAppliedMigrations(db);
     const second = await migrate(db);
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(8);
+    expect(second.alreadyApplied).toHaveLength(9);
     expect(await readAppliedMigrations(db)).toEqual(before);
   });
 
