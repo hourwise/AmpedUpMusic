@@ -30,6 +30,7 @@ import { ConflictError, NotFoundError, ValidationError } from '@/lib/validation.
 import type { OrderStatus } from '@/types/domain.ts';
 
 import type { PaymentProvider } from '../contracts.ts';
+import { createD1TicketInventoryService } from '../d1/tickets.ts';
 import { CHECKOUT_WINDOW_MINUTES } from '../payments/mock.ts';
 
 export interface CheckoutItemInput {
@@ -78,12 +79,19 @@ export interface OrderMutationService {
   ): Promise<ConfirmedPayment>;
   cancelOrder(orderId: string): Promise<void>;
   expireOrder(orderId: string): Promise<void>;
+  /**
+   * Reservation-expiry sweep (AMPED-06B): persist `expired` for holds whose
+   * 30-minute window has passed. Idempotent - a second run transitions and
+   * audits nothing further.
+   */
+  expireDueReservations(now: Date): Promise<{ expired: number }>;
 }
 
 type IdFactory = (prefix: string) => string;
 const defaultId: IdFactory = (prefix) => `${prefix}_${crypto.randomUUID()}`;
 
-const PUBLIC_EVENT_STATUS_SQL = "status in ('published', 'postponed', 'cancelled', 'completed')";
+/** Only a published gig sells tickets; everything else is not on sale. */
+const SELLABLE_EVENT_STATUS_SQL = "status = 'published'";
 const MAX_REFERENCE_ATTEMPTS = 8;
 const MAX_LINE_QUANTITY = 99;
 
@@ -97,11 +105,15 @@ interface TicketTypeRow {
   name: string;
   price_in_pence: number;
   visibility: string;
+  max_per_order: number | null;
+  sales_open_at: string | null;
+  sales_close_at: string | null;
 }
 
 interface OrderRow {
   id: string;
   reference: string;
+  event_id: string;
   status: OrderStatus;
   total_in_pence: number;
   customer_email: string;
@@ -122,7 +134,7 @@ class D1OrderMutations implements OrderMutationService {
   async createOrder(input: CheckoutInput): Promise<CreatedOrder> {
     const items = this.normaliseItems(input.items);
     const event = await this.db
-      .prepare(`select status from events where id = ?1 and ${PUBLIC_EVENT_STATUS_SQL}`)
+      .prepare(`select status from events where id = ?1 and ${SELLABLE_EVENT_STATUS_SQL}`)
       .bind(input.eventId)
       .first<{ status: string }>();
     if (!event) throw new NotFoundError('That gig is not taking orders.');
@@ -132,12 +144,18 @@ class D1OrderMutations implements OrderMutationService {
     for (const item of items) {
       const row = await this.db
         .prepare(
-          'select id, event_id, name, price_in_pence, visibility from ticket_types where id = ?1',
+          'select id, event_id, name, price_in_pence, visibility, max_per_order, sales_open_at, sales_close_at from ticket_types where id = ?1',
         )
         .bind(item.ticketTypeId)
         .first<TicketTypeRow>();
       if (!row || row.event_id !== input.eventId || row.visibility !== 'public') {
         throw new NotFoundError('That ticket type is not on sale for this gig.');
+      }
+      // maxPerOrder is authoritative server-side and never clamped silently.
+      if (row.max_per_order !== null && item.quantity > row.max_per_order) {
+        throw new ValidationError({
+          items: `You can order at most ${row.max_per_order} of ${row.name} at a time.`,
+        });
       }
       captured.push({
         ticketTypeId: row.id,
@@ -210,6 +228,10 @@ class D1OrderMutations implements OrderMutationService {
       throw new ValidationError({ status: `An order in ${order.status} cannot start payment.` });
     }
 
+    // Everything is validated before any reservation is activated, so a bad
+    // line can never leave an orphan awaiting_payment hold.
+    await this.assertReservable(order);
+
     const checkout = await provider.createCheckout({
       orderId: order.id,
       reference: order.reference,
@@ -261,6 +283,18 @@ class D1OrderMutations implements OrderMutationService {
       });
     }
 
+    // An expired local hold is never resurrected by a late confirmation. The
+    // inventory read already released the stock; the operator/provider
+    // reconciliation for real SumUp discrepancies belongs to a later phase.
+    const nowMs = this.now().getTime();
+    if (
+      order.reservation_expires_at !== null &&
+      Date.parse(order.reservation_expires_at) <= nowMs
+    ) {
+      throw new ConflictError('This reservation has expired. Start checkout again.');
+    }
+    const reservationFloor = this.now().toISOString();
+
     const result = await provider.confirm(checkoutId);
 
     if (result.status === 'pending') {
@@ -283,12 +317,14 @@ class D1OrderMutations implements OrderMutationService {
 
     const paidAt = result.paidAt ?? this.now().toISOString();
     const at = this.stamp();
+    // The unexpired-hold predicate is repeated in the UPDATE itself, so a
+    // sweep that wins the race can never be undone by a stale confirmation.
     const results = await this.db.batch([
       this.db
         .prepare(
-          "update orders set status = 'paid', paid_at = ?1, updated_at = ?2 where id = ?3 and status = 'awaiting_payment'",
+          "update orders set status = 'paid', paid_at = ?1, updated_at = ?2 where id = ?3 and status = 'awaiting_payment' and reservation_expires_at > ?4",
         )
-        .bind(paidAt, at, orderId),
+        .bind(paidAt, at, orderId, reservationFloor),
       this.audit('order.paid', orderId, `Paid ${order.reference}`, at),
     ]);
 
@@ -309,11 +345,65 @@ class D1OrderMutations implements OrderMutationService {
     await this.transition(orderId, 'expired', 'awaiting_payment', 'order.expired');
   }
 
+  async expireDueReservations(now: Date): Promise<{ expired: number }> {
+    const at = now.toISOString();
+    const due = (
+      await this.db
+        .prepare(
+          "select id from orders where status = 'awaiting_payment' and julianday(reservation_expires_at) <= julianday(?1)",
+        )
+        .bind(at)
+        .all<{ id: string }>()
+    ).results;
+
+    let expired = 0;
+    for (const row of due) {
+      const results = await this.db.batch([
+        this.db
+          .prepare(
+            "update orders set status = 'expired', updated_at = ?1 where id = ?2 and status = 'awaiting_payment' and julianday(reservation_expires_at) <= julianday(?3)",
+          )
+          .bind(at, row.id, at),
+        // Guarded audit: written only when this statement's update actually
+        // moved the row, so a second sweep records nothing.
+        this.db
+          .prepare(
+            'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+              'select ?1, ?2, ?3, ?4, ?5, ?6, ?7 where exists (select 1 from orders where id = ?5 and status = ?8 and updated_at = ?9)',
+          )
+          .bind(
+            this.newId('aud'),
+            'system:reservation-sweep',
+            'order.expired',
+            'order',
+            row.id,
+            'Expired by reservation sweep',
+            at,
+            'expired',
+            at,
+          ),
+      ]);
+      if (((results[0]?.meta?.changes ?? 0) as number) === 1) expired += 1;
+    }
+    return { expired };
+  }
+
   // -- helpers -------------------------------------------------------------
 
   private normaliseItems(items: ReadonlyArray<CheckoutItemInput>): CheckoutItemInput[] {
     if (items.length === 0) throw new ValidationError({ items: 'Choose at least one ticket.' });
     if (items.length > 10) throw new ValidationError({ items: 'Too many ticket types in one order.' });
+
+    // Duplicate lines are rejected outright: 3 + 3 must never slip past a
+    // maxPerOrder of 5.
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (seen.has(item.ticketTypeId)) {
+        throw new ValidationError({ items: 'Each ticket type may appear only once.' });
+      }
+      seen.add(item.ticketTypeId);
+    }
+
     return items.map((item) => {
       if (!/^[A-Za-z0-9_-]+$/.test(item.ticketTypeId)) {
         throw new ValidationError({ items: 'One of the ticket types is not valid.' });
@@ -325,10 +415,75 @@ class D1OrderMutations implements OrderMutationService {
     });
   }
 
+  /**
+   * Sellability + serial availability for the whole basket, checked before
+   * any reservation is activated. This is ordinary request correctness, not
+   * the AMPED-06C concurrency guarantee.
+   */
+  private async assertReservable(order: OrderRow): Promise<void> {
+    const event = await this.db
+      .prepare('select status from events where id = ?1')
+      .bind(order.event_id)
+      .first<{ status: string }>();
+    if (!event) throw new NotFoundError('That gig does not exist.');
+    if (event.status !== 'published') {
+      throw new ConflictError('This gig is not on sale.');
+    }
+
+    const lines = (
+      await this.db
+        .prepare(
+          'select oi.ticket_type_id, oi.quantity, tt.name, tt.visibility, tt.sales_open_at, tt.sales_close_at ' +
+            'from order_items oi join ticket_types tt on tt.id = oi.ticket_type_id where oi.order_id = ?1',
+        )
+        .bind(order.id)
+        .all<{
+          ticket_type_id: string;
+          quantity: number;
+          name: string;
+          visibility: string;
+          sales_open_at: string | null;
+          sales_close_at: string | null;
+        }>()
+    ).results;
+    if (lines.length === 0) {
+      throw new ValidationError({ items: 'This order has no ticket lines.' });
+    }
+
+    const now = this.now();
+    for (const line of lines) {
+      if (line.visibility !== 'public') {
+        throw new ConflictError('That ticket type is not on public sale.');
+      }
+      if (line.sales_open_at !== null && Date.parse(line.sales_open_at) > now.getTime()) {
+        throw new ConflictError(`Sales for ${line.name} have not opened yet.`);
+      }
+      if (line.sales_close_at !== null && Date.parse(line.sales_close_at) <= now.getTime()) {
+        throw new ConflictError(`Sales for ${line.name} have closed.`);
+      }
+    }
+
+    const inventory = await createD1TicketInventoryService(this.db, this.now).publicInventory([
+      order.event_id,
+    ]);
+    const available = new Map(
+      (inventory.inventoryByEvent.get(order.event_id) ?? []).map((entry) => [
+        entry.ticketType.id,
+        entry.available,
+      ]),
+    );
+    for (const line of lines) {
+      const left = available.get(line.ticket_type_id) ?? 0;
+      if (line.quantity > left) {
+        throw new ConflictError(`Only ${left} left for ${line.name}.`);
+      }
+    }
+  }
+
   private async loadOrder(orderId: string): Promise<OrderRow> {
     const row = await this.db
       .prepare(
-        'select id, reference, status, total_in_pence, customer_email, reservation_expires_at from orders where id = ?1',
+        'select id, reference, event_id, status, total_in_pence, customer_email, reservation_expires_at from orders where id = ?1',
       )
       .bind(orderId)
       .first<OrderRow>();

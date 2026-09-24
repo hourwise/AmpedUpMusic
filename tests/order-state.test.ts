@@ -375,7 +375,10 @@ describe('AMPED-06A order state machine', () => {
     }
   });
 
-  it('does not implement 06B/06C machinery', () => {
+  it('does not schedule anything itself, and never claims concurrency safety', () => {
+    // AMPED-06B adds the reservation-expiry sweep method and the Worker cron,
+    // but the order/payment services must not schedule their own timers or
+    // claim the 06C concurrency guarantee.
     const files = [
       join(root, 'src', 'services', 'orders', 'service.ts'),
       join(root, 'src', 'services', 'payments', 'mock.ts'),
@@ -384,7 +387,7 @@ describe('AMPED-06A order state machine', () => {
       const code = readFileSync(file, 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')
         .replace(/^\s*\/\/.*$/gm, '');
-      expect(code, file).not.toMatch(/setInterval|schedule|cron|sweep|lazyReconcile|oversell/i);
+      expect(code, file).not.toMatch(/setInterval|setTimeout|schedule\(|cron|oversell|lazyReconcile/i);
     }
   });
 

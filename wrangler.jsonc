@@ -20,7 +20,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ampedup",
-  "main": "@astrojs/cloudflare/entrypoints/server",
+  // AMPED-06B: a custom entry wraps the adapter's supported `handle` so the
+  // same Worker can also receive the reservation-expiry cron. Astro HTTP
+  // routing and middleware are unchanged - fetch delegates straight through.
+  "main": "./src/worker/entry.ts",
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {

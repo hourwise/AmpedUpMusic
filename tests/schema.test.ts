@@ -141,6 +141,7 @@ describe('migration runner', () => {
       '0007',
       '0008',
       '0009',
+      '0010',
     ]);
     expect(result.alreadyApplied).toEqual([]);
 
@@ -156,7 +157,7 @@ describe('migration runner', () => {
       )
       .all<{ id: string; name: string; checksum: string; applied_at: string }>();
 
-    expect(applied.length).toBe(9);
+    expect(applied.length).toBe(10);
     expect(withChecksums.results.map((row) => row.name)).toEqual(
       loadMigrations().map((migration) => migration.name),
     );
@@ -172,7 +173,7 @@ describe('migration runner', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(9);
+    expect(second.alreadyApplied).toHaveLength(10);
 
     // Not merely "no error": the ledger must be untouched, timestamps and all.
     expect(await readAppliedMigrations(db)).toEqual(before);
@@ -182,7 +183,7 @@ describe('migration runner', () => {
     const ids = loadMigrations().map((migration) => migration.id);
     expect(ids).toEqual([...ids].sort());
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(9);
+    expect(ids).toHaveLength(10);
   });
 
   it('refuses to run if a migration that has already been applied is edited', async () => {
@@ -242,7 +243,7 @@ describe('migration runner', () => {
 
     const rebuilt = await migrate(db);
 
-    expect(rebuilt.applied).toHaveLength(9);
+    expect(rebuilt.applied).toHaveLength(10);
     expect(await schemaObjects(db)).toEqual(expected);
   });
 });
@@ -1068,7 +1069,7 @@ describe('integrity constraints', () => {
     const ledger = await db
       .prepare('select count(*) as n from schema_migrations')
       .first<{ n: number }>();
-    expect(ledger?.n).toBe(9);
+    expect(ledger?.n).toBe(10);
   });
 });
 
@@ -1083,6 +1084,11 @@ const REQUIRED_INDEXES: ReadonlyArray<{ name: string; table: string; unique: boo
   { name: 'ticket_types_event_id_idx', table: 'ticket_types', unique: false },
   { name: 'orders_event_id_idx', table: 'orders', unique: false },
   { name: 'orders_reference_unique', table: 'orders', unique: true },
+  {
+    name: 'orders_status_reservation_expires_at_idx',
+    table: 'orders',
+    unique: false,
+  },
   { name: 'tickets_order_id_idx', table: 'tickets', unique: false },
   { name: 'tickets_reference_unique', table: 'tickets', unique: true },
   { name: 'checkins_ticket_id_unique', table: 'checkins', unique: true },
@@ -1115,7 +1121,7 @@ describe('indexes', () => {
 
   it('indexes the columns later slices read, and nothing speculative', async () => {
     const indexes = (await namedIndexes(db)).map((row) => row.name);
-    // 25 named indexes plus the ledger's primary key index. The list is
+    // 26 named indexes plus the ledger's primary key index. The list is
     // asserted in full so that a speculative index is a deliberate edit.
     expect(indexes).toEqual([
       'artists_slug_unique',
@@ -1134,6 +1140,7 @@ describe('indexes', () => {
       'order_items_ticket_type_id_idx',
       'orders_event_id_idx',
       'orders_reference_unique',
+      'orders_status_reservation_expires_at_idx',
       'processed_webhooks_provider_event_unique',
       'social_posts_event_id_idx',
       'social_posts_featured_idx',

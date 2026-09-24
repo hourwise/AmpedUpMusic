@@ -259,6 +259,14 @@ export function getCheckout(): {
   return cachedCheckout;
 }
 
+/**
+ * Reservation maintenance used by the scheduled sweep (AMPED-06B). The Worker
+ * entry passes its platform time in; the SQL stays behind the service layer.
+ */
+export function getReservationMaintenance(): OrderMutationService {
+  return getCheckout().orders;
+}
+
 export function getAdminGigMutations(): GigMutationService {
   if (!database) {
     throw new Error(
