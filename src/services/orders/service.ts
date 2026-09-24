@@ -31,6 +31,10 @@ import type { OrderStatus } from '@/types/domain.ts';
 
 import type { PaymentProvider } from '../contracts.ts';
 import { createD1TicketInventoryService } from '../d1/tickets.ts';
+import {
+  createD1InventoryReservations,
+  inventoryConflict,
+} from '../inventory/acquire.ts';
 import { CHECKOUT_WINDOW_MINUTES } from '../payments/mock.ts';
 
 export interface CheckoutItemInput {
@@ -241,22 +245,46 @@ class D1OrderMutations implements OrderMutationService {
       returnUrl: '/checkout/return',
     });
 
-    const at = this.stamp();
+    // ONE canonical logical now for the capacity cutoff, the reservation
+    // expiry and the row's updated_at - the trigger reads the same instant via
+    // NEW.updated_at.
+    const now = this.now();
+    const at = now.toISOString();
     const reservationExpiresAt = new Date(
-      this.now().getTime() + CHECKOUT_WINDOW_MINUTES * 60_000,
+      now.getTime() + CHECKOUT_WINDOW_MINUTES * 60_000,
     ).toISOString();
 
-    const results = await this.db.batch([
-      this.db
-        .prepare(
-          "update orders set status = 'awaiting_payment', reservation_expires_at = ?1, payment_provider = ?2, payment_reference = ?3, updated_at = ?4 where id = ?5 and status = 'pending'",
-        )
-        .bind(reservationExpiresAt, provider.name, checkout.checkoutId, at, orderId),
-      this.audit('order.awaiting_payment', orderId, `Started payment for ${order.reference}`, at),
-    ]);
-    if (((results[0]?.meta?.changes ?? 0) as number) === 0) {
-      throw new ConflictError('This order changed while payment was starting. Reload and try again.');
-    }
+    // PRIMARY stock authority (AMPED-06C): one conditional mutation that
+    // checks the whole basket atomically. The advisory read above is not the
+    // gate; the 0011 trigger remains the second line of defence.
+    const acquired = await createD1InventoryReservations(this.db).acquireReservation({
+      orderId,
+      now,
+      expiresAt: reservationExpiresAt,
+      provider: provider.name,
+      reference: checkout.checkoutId,
+    });
+    if (!acquired.acquired) throw inventoryConflict(acquired.reason);
+
+    // Audited only after the transition succeeded, guarded on the exact row
+    // state this acquisition wrote.
+    await this.db
+      .prepare(
+        'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+          'select ?1, ?2, ?3, ?4, ?5, ?6, ?7 where exists (select 1 from orders where id = ?5 and status = ?8 and updated_at = ?9)',
+      )
+      .bind(
+        this.newId('aud'),
+        'checkout',
+        'order.awaiting_payment',
+        'order',
+        orderId,
+        `Started payment for ${order.reference}`,
+        at,
+        'awaiting_payment',
+        at,
+      )
+      .run();
 
     return {
       orderId,
