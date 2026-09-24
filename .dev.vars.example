@@ -10,8 +10,8 @@
 AMPED_ENV=development
 
 # AMPED-07A/B — SumUp Hosted Checkout (server-side only, never exposed to client)
-SUMUP_API_KEY=
-SUMUP_MERCHANT_CODE=
+SUMUP_API_KEY=replace-with-development-sumup-api-key
+SUMUP_MERCHANT_CODE=replace-with-development-merchant-code
 SUMUP_WEBHOOK_SECRET=
 
 # AMPED-08C — transactional email provider (behind TicketEmailProvider interface)
