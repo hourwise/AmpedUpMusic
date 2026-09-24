@@ -10,15 +10,23 @@
  *
  * Definitions, exactly as the slice specifies:
  *
- *   sold      = tickets in ('issued', 'checked_in') for the type
+ *   sold      = sum(order_items.quantity) for the type whose order is
+ *               'paid' or 'partially_refunded' (AMPED-06B0)
  *   reserved  = sum(order_items.quantity) for the type whose order is
  *               'awaiting_payment' and whose reservation_expires_at is strictly
  *               in the future. An expired reservation never counts (R15).
  *   available = max(0, capacity - sold - reserved)
  *
- * Reserved stock is derived from order_items and never from ticket rows: the
- * schema has no "held" ticket status and only a paid order may issue tickets
- * (see migrations/0004_ticketing.sql).
+ * AUTHORITY (AMPED-06B0): order state is the authority for commercial
+ * inventory commitment; ticket rows are the authority for fulfilment and
+ * admission only. A paid order is sold stock the moment it is paid, even with
+ * zero tickets issued, and issuing tickets later must not add a second sale.
+ * `refunded` releases the quantity; `partially_refunded` conservatively keeps
+ * the whole captured quantity because the schema has no item-level refunded
+ * quantity to release part of it safely.
+ *
+ * Both sold and reserved are derived from order_items - never reconstructed
+ * from tickets or checkins.
  *
  * Rules:
  *  - explicit columns everywhere, no `select *`;
@@ -110,9 +118,11 @@ const SELECT_TYPES_FOR_EVENTS_SQL =
 const SELECT_TYPE_BY_ID_SQL = `select ${TICKET_TYPE_COLUMNS} from ticket_types where id = ?1`;
 
 const SELECT_SOLD_SQL =
-  'select ticket_type_id, count(*) as sold from tickets ' +
-  'where ticket_type_id in (select value from json_each(?1)) ' +
-  "and status in ('issued', 'checked_in') group by ticket_type_id";
+  'select oi.ticket_type_id as ticket_type_id, coalesce(sum(oi.quantity), 0) as sold ' +
+  'from order_items oi join orders o on o.id = oi.order_id ' +
+  'where oi.ticket_type_id in (select value from json_each(?1)) ' +
+  "and o.status in ('paid', 'partially_refunded') " +
+  'group by oi.ticket_type_id';
 
 /**
  * Strictly future reservations only. The comparison is done with `julianday`

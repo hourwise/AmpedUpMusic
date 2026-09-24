@@ -246,14 +246,17 @@ describe('AMPED-02D ticket and inventory reads', () => {
 
   // -- sold ------------------------------------------------------------------
 
-  it('counts only issued and checked_in tickets as sold', async () => {
+  it('counts commercially paid order quantity as sold, regardless of ticket rows', async () => {
+    // AMPED-06B0: order state is the commercial authority; ticket rows are
+    // fulfilment only. A paid order sells its captured quantity immediately,
+    // and no ticket status (issued, checked_in, void or refunded) changes that.
     const eventId = await makeProbeEvent();
     const typeId = await makeProbeType(eventId, { capacity: 100 });
     const orderId = await makeProbeOrder(eventId, {
       status: 'paid',
       paidAt: '2026-01-01T00:00:00.000Z',
     });
-    await makeProbeTicket(orderId, eventId, typeId, 'issued');
+    await makeProbeOrderItem(orderId, typeId, 3);
     await makeProbeTicket(orderId, eventId, typeId, 'issued');
     await makeProbeTicket(orderId, eventId, typeId, 'checked_in');
     await makeProbeTicket(orderId, eventId, typeId, 'void');
@@ -265,6 +268,12 @@ describe('AMPED-02D ticket and inventory reads', () => {
       expect(inventory?.sold).toBe(3);
       expect(inventory?.reserved).toBe(0);
       expect(inventory?.available).toBe(97);
+
+      // Adding more tickets to the paid order cannot add a second sale.
+      await makeProbeTicket(orderId, eventId, typeId, 'issued');
+      const afterMoreTickets = await tickets.ticketTypeInventory(typeId);
+      expect(afterMoreTickets?.sold).toBe(3);
+      expect(afterMoreTickets?.available).toBe(97);
     } finally {
       await deleteProbe(eventId);
     }
@@ -303,9 +312,10 @@ describe('AMPED-02D ticket and inventory reads', () => {
 
     try {
       const inventory = await fixed.ticketTypeInventory(typeId);
-      // 2 + 2 active; the expired, the exactly-at-now and the paid item do not count.
+      // 2 + 2 active; the expired and exactly-at-now items do not count as
+      // reserved. The paid item is sold (AMPED-06B0), not reserved.
       expect(inventory?.reserved).toBe(4);
-      expect(inventory?.sold).toBe(0);
+      expect(inventory?.sold).toBe(5);
 
       // A reservation is modelled by order_items, never by ticket rows.
       const ticketRows = await db
@@ -345,6 +355,9 @@ describe('AMPED-02D ticket and inventory reads', () => {
       status: 'paid',
       paidAt: '2026-01-01T00:00:00.000Z',
     });
+    // Sold is the paid order's captured quantity; the ticket rows below prove
+    // fulfilment does not participate in the calculation.
+    await makeProbeOrderItem(paid, typeId, 3);
     await makeProbeTicket(paid, eventId, typeId, 'issued');
     await makeProbeTicket(paid, eventId, typeId, 'checked_in');
     await makeProbeTicket(paid, eventId, typeId, 'issued');
@@ -373,6 +386,7 @@ describe('AMPED-02D ticket and inventory reads', () => {
       status: 'paid',
       paidAt: '2026-01-01T00:00:00.000Z',
     });
+    await makeProbeOrderItem(paid, typeId, 5);
     for (let i = 0; i < 5; i += 1) {
       await makeProbeTicket(paid, eventId, typeId, 'issued');
     }
