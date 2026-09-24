@@ -75,50 +75,147 @@ export function stripSqlComments(sql: string): string {
 }
 
 /**
+ * Explicit compound-statement directives (AMPED-06C0).
+ *
+ * A migration can wrap ONE SQLite statement that legitimately contains internal
+ * semicolons (a `CREATE TRIGGER ... BEGIN ... ; ... END`) in these markers. The
+ * markers are recognised only as exact, trimmed comment lines outside string
+ * literals, so the same text inside a quoted value is ordinary SQL.
+ */
+export const COMPOUND_STATEMENT_BEGIN = '-- amped:statement-begin';
+export const COMPOUND_STATEMENT_END = '-- amped:statement-end';
+
+/**
  * Split a SQL script into individual statements.
  *
  * Comments are removed first, blank statements are dropped, and every
  * statement is trimmed. The result is fed to the database one statement at a
  * time, which is what D1's `prepare()` expects.
+ *
+ * Outside an explicit compound block the behaviour is exactly what it always
+ * was: split on semicolons outside single-quoted strings, strip comments.
+ * Inside a compound block the content is kept verbatim (still comment-stripped
+ * outside strings, and never rewritten) and returned as ONE statement, so a
+ * trigger body survives intact. Malformed marker structures fail loudly rather
+ * than falling back to ordinary splitting.
  */
 export function splitStatements(sql: string): string[] {
-  const stripped = stripSqlComments(sql);
   const statements: string[] = [];
   let current = '';
+  let block = '';
   let inString = false;
+  let inBlockComment = false;
+  let inCompound = false;
+  let i = 0;
 
-  for (let i = 0; i < stripped.length; i += 1) {
-    const char = stripped.charAt(i);
+  const append = (text: string): void => {
+    if (inCompound) block += text;
+    else current += text;
+  };
+  const flush = (): void => {
+    const trimmed = current.trim();
+    if (trimmed.length > 0) statements.push(trimmed);
+    current = '';
+  };
+
+  while (i < sql.length) {
+    const char = sql.charAt(i);
+    const next = sql.charAt(i + 1);
 
     if (inString) {
-      current += char;
+      append(char);
       if (char === "'") {
-        if (stripped.charAt(i + 1) === "'") {
-          current += "'";
-          i += 1;
-        } else {
-          inString = false;
+        if (next === "'") {
+          append(next);
+          i += 2;
+          continue;
         }
+        inString = false;
       }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      // Outside a compound block comments are stripped as before; inside one
+      // they are kept verbatim so the body is never silently rewritten.
+      if (inCompound) block += char;
+      if (char === '*' && next === '/') {
+        if (inCompound) block += next;
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (char === '-' && next === '-') {
+      let end = sql.indexOf('\n', i);
+      if (end === -1) end = sql.length;
+      const comment = sql.slice(i, end).trim();
+
+      if (comment === COMPOUND_STATEMENT_BEGIN) {
+        if (inCompound) {
+          throw new Error('migration sql: nested compound statement block is not allowed');
+        }
+        if (current.trim().length > 0) flush();
+        inCompound = true;
+        block = '';
+        i = end + 1;
+        continue;
+      }
+      if (comment === COMPOUND_STATEMENT_END) {
+        if (!inCompound) {
+          throw new Error('migration sql: compound statement end without begin');
+        }
+        const trimmedBlock = block.trim();
+        if (trimmedBlock.length === 0) {
+          throw new Error('migration sql: compound statement block is empty');
+        }
+        statements.push(trimmedBlock);
+        inCompound = false;
+        block = '';
+        i = end + 1;
+        continue;
+      }
+
+      // Ordinary comment: stripped, exactly as before (outside) or preserved
+      // verbatim as part of the trigger body (inside).
+      if (inCompound) block += sql.slice(i, end);
+      i = end;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      inBlockComment = true;
+      i += 2;
+      if (inCompound) block += '/*';
       continue;
     }
 
     if (char === "'") {
       inString = true;
-      current += char;
+      append(char);
+      i += 1;
       continue;
     }
 
     if (char === ';') {
-      statements.push(current);
-      current = '';
+      if (inCompound) block += char;
+      else flush();
+      i += 1;
       continue;
     }
 
-    current += char;
+    append(char);
+    i += 1;
   }
 
-  statements.push(current);
+  if (inCompound) {
+    throw new Error('migration sql: compound statement block was not closed');
+  }
 
-  return statements.map((statement) => statement.trim()).filter((statement) => statement.length > 0);
+  flush();
+  return statements;
 }
