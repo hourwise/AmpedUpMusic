@@ -395,12 +395,18 @@ describe('AMPED-07A secret boundary', () => {
     };
     walk(join(root, 'src'));
 
-    // Only the env declaration may name the secret variables; every component,
-    // page, client script and adapter takes them as constructor input instead.
+    // The env declaration and the service locator are the ONLY two files that
+    // may name the secret variables. AMPED-07B added the locator, which reads
+    // them once and hands them to the adapter as constructor input; every
+    // component, page and client script still has no way to reach them, and
+    // the adapter itself still takes credentials as arguments.
     const readers = files.filter((file) =>
       /SUMUP_API_KEY|SUMUP_MERCHANT_CODE/.test(readFileSync(file, 'utf8')),
     );
-    expect(readers.map((file) => file.replaceAll('\\', '/').split('/src/')[1])).toEqual(['env.d.ts']);
+    expect(readers.map((file) => file.replaceAll('\\', '/').split('/src/')[1]).sort()).toEqual([
+      'env.d.ts',
+      'services/index.ts',
+    ]);
   });
 
   it('documents placeholders only in .dev.vars.example', () => {

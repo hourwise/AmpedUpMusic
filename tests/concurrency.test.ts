@@ -661,7 +661,7 @@ describe('AMPED-06C oversell protection', () => {
         confirm: async () => ({ status: 'paid' as const, paidAt: FIXED_NOW.toISOString() }),
         verifyWebhook: async () => null,
       };
-      const begun = await service.beginPayment(created.orderId, provider);
+      const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
 
       const contenders = await createPendingOrders(probe, 5, 1);
       const [confirmation] = await Promise.allSettled([
@@ -703,7 +703,7 @@ describe('AMPED-06C oversell protection', () => {
 
       const results = await Promise.allSettled(
         contenders.map((orderId, index) =>
-          freshOrders().beginPayment(orderId, providerFor(index)),
+          freshOrders().beginPayment(orderId, providerFor(index), 'https://amped.test/checkout/return'),
         ),
       );
       const winners = results.filter((result) => result.status === 'fulfilled').length;

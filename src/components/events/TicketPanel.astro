@@ -11,14 +11,18 @@
  *  - The running total and the single Checkout button are sticky at the bottom
  *    of the panel, so the commitment step is always in view while choosing.
  *
- * AMPED-01 does not take money. The stepper is real (it does arithmetic in the
- * browser), the Checkout button is inert and explains where the SumUp hosted
- * checkout will begin.
+ * AMPED-07B wires the Checkout button to the real server endpoint. What the
+ * browser sends is deliberately thin: ticket type ids, quantities and contact
+ * details. It does NOT send a price, a total, a currency or a checkout
+ * reference - the server recomputes all of that from D1, and the running total
+ * below is a convenience for the customer, never an input to the charge.
+ *
+ * No card field exists here and none ever will: card data is entered only on
+ * SumUp's own hosted page, so it never touches Amped Up HTML or JavaScript.
  */
 import AvailabilityBadge from './AvailabilityBadge.astro';
 import Button from '@/components/ui/Button.astro';
 import Callout from '@/components/ui/Callout.astro';
-import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
 import { formatShortDate, formatTime } from '@/lib/dates.ts';
 import type { EventView } from '@/types/view.ts';
 
@@ -31,7 +35,12 @@ const isDisrupted = event.status === 'cancelled' || event.status === 'postponed'
 const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
 ---
 
-<section class="tickets surface" id="tickets" aria-labelledby="tickets-heading">
+<section
+  class="tickets surface"
+  id="tickets"
+  aria-labelledby="tickets-heading"
+  data-event-id={event.id}
+>
   <header class="tickets-head">
     <h2 class="display display-sm" id="tickets-heading">Tickets</h2>
     <AvailabilityBadge state={event.availability} long />
@@ -89,6 +98,7 @@ const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
                   <div
                     class="stepper"
                     data-stepper
+                    data-ticket-type-id={ticket.id}
                     data-price={ticket.priceInPence}
                     data-max={Math.min(ticket.maxPerOrder, ticket.inventory.available)}
                   >
@@ -125,30 +135,65 @@ const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
           ))}
         </ul>
 
-        <div class="tickets-foot">
-          <p class="tickets-total">
-            <span class="tickets-total-label">Total</span>
-            <output class="tickets-total-value" data-total aria-live="polite">&pound;0.00</output>
-          </p>
-          <Button
-            variant="volt"
-            size="lg"
-            block
-            data-checkout
-            inert={!anyPurchasable}
-            aria-describedby="checkout-note"
-          >
-            {anyPurchasable ? 'Checkout' : 'Not on sale'}
-          </Button>
-        </div>
+        <form class="tickets-form" data-checkout-form>
+          <fieldset class="tickets-customer">
+            <legend class="tickets-customer-legend">Your details</legend>
 
-        <div id="checkout-note">
-          <ScaffoldNote slice="AMPED-07B">
-            Checkout is not connected. In V1 this button creates the order and reservation
-            (AMPED-06A/06B), then redirects to a SumUp Hosted Checkout created server-side. Payment
-            is confirmed by reading the result back from SumUp, never from the return URL.
-          </ScaffoldNote>
-        </div>
+            <div class="field">
+              <label for="checkout-name">Name</label>
+              <input
+                type="text"
+                id="checkout-name"
+                name="customerName"
+                autocomplete="name"
+                required
+                minlength="2"
+                maxlength="120"
+                data-customer-name
+              />
+            </div>
+
+            <div class="field">
+              <label for="checkout-email">Email</label>
+              <input
+                type="email"
+                id="checkout-email"
+                name="customerEmail"
+                autocomplete="email"
+                required
+                maxlength="200"
+                aria-describedby="checkout-email-hint"
+                data-customer-email
+              />
+              <p class="field-hint" id="checkout-email-hint">
+                Your tickets and QR codes are sent here.
+              </p>
+            </div>
+          </fieldset>
+
+          <div class="tickets-foot">
+            <p class="tickets-total">
+              <span class="tickets-total-label">Total</span>
+              <output class="tickets-total-value" data-total aria-live="polite">&pound;0.00</output>
+            </p>
+            <Button
+              type="submit"
+              variant="volt"
+              size="lg"
+              block
+              data-checkout
+              inert={!anyPurchasable}
+            >
+              {anyPurchasable ? 'Checkout' : 'Not on sale'}
+            </Button>
+          </div>
+
+          <p class="checkout-error" data-checkout-error role="alert" hidden></p>
+
+          <p class="checkout-secure">
+            Card details are entered on SumUp's secure payment page, never on this site.
+          </p>
+        </form>
 
         <ul class="tickets-reassurance">
           <li>Tickets arrive by email with a QR code. Bring your phone or a printout.</li>
@@ -206,11 +251,133 @@ const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
     stepper.querySelector<HTMLButtonElement>('[data-step="-1"]')?.setAttribute('disabled', '');
   });
 
-  checkout?.addEventListener('click', (event) => {
-    event.preventDefault();
-    window.alert(
-      'Scaffold only (AMPED-01).\n\nIn V1 this creates an order, reserves the tickets for 30 minutes and redirects to SumUp Hosted Checkout. No payment is taken here.',
-    );
+  // --- Checkout submission (AMPED-07B) ------------------------------------
+  //
+  // The payload carries ticket type ids, quantities and contact details and
+  // nothing else. No price, total, currency or reference is sent: the server
+  // recomputes the charge from D1, so tampering with anything reachable from
+  // devtools changes the displayed total and not a penny of what is charged.
+
+  const section = document.querySelector<HTMLElement>('[data-event-id]');
+  const form = document.querySelector<HTMLFormElement>('[data-checkout-form]');
+  const nameInput = document.querySelector<HTMLInputElement>('[data-customer-name]');
+  const emailInput = document.querySelector<HTMLInputElement>('[data-customer-email]');
+  const errorOutput = document.querySelector<HTMLElement>('[data-checkout-error]');
+
+  /** True while a request is in flight, so a double click cannot send two. */
+  let submitting = false;
+
+  function showError(message: string) {
+    if (!errorOutput) return;
+    errorOutput.textContent = message;
+    errorOutput.hidden = false;
+  }
+
+  function clearError() {
+    if (!errorOutput) return;
+    errorOutput.textContent = '';
+    errorOutput.hidden = true;
+  }
+
+  function selectedItems(): Array<{ ticketTypeId: string; quantity: number }> {
+    if (!panel) return [];
+    const items: Array<{ ticketTypeId: string; quantity: number }> = [];
+    panel.querySelectorAll<HTMLElement>('[data-stepper]').forEach((stepper) => {
+      const quantity = Number(stepper.querySelector('[data-value]')?.textContent ?? '0');
+      const ticketTypeId = stepper.dataset.ticketTypeId ?? '';
+      if (quantity > 0 && ticketTypeId) items.push({ ticketTypeId, quantity });
+    });
+    return items;
+  }
+
+  /** Turn a controlled API failure into something worth reading. */
+  function messageFor(status: number, payload: { error?: string; fields?: Record<string, string> }) {
+    const firstField = payload.fields ? Object.values(payload.fields)[0] : undefined;
+    if (status === 400) return firstField ?? 'Please check your details and try again.';
+    if (status === 404) return firstField ?? 'Those tickets are no longer on sale.';
+    if (status === 409) return firstField ?? 'Those tickets are no longer available.';
+    if (status === 503) return 'Checkout is temporarily unavailable. Please try again shortly.';
+    return 'Something went wrong starting checkout. Please try again.';
+  }
+
+  function setBusy(busy: boolean) {
+    submitting = busy;
+    if (!(checkout instanceof HTMLButtonElement)) return;
+    checkout.disabled = busy;
+    checkout.setAttribute('aria-busy', busy ? 'true' : 'false');
+  }
+
+  form?.addEventListener('submit', async (submitEvent) => {
+    submitEvent.preventDefault();
+
+    // The guard that matters for ordinary double clicks. It is a courtesy to
+    // the customer, NOT an idempotency mechanism: the server must stay correct
+    // if this request arrives twice anyway.
+    if (submitting) return;
+
+    clearError();
+
+    const eventId = section?.dataset.eventId ?? '';
+    const items = selectedItems();
+    if (items.length === 0) {
+      showError('Choose at least one ticket.');
+      return;
+    }
+    if (!eventId) {
+      showError('Something went wrong starting checkout. Please try again.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const response = await fetch('/api/checkout/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          items,
+          customerName: nameInput?.value.trim() ?? '',
+          customerEmail: emailInput?.value.trim() ?? '',
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        fields?: Record<string, string>;
+        redirectUrl?: string;
+      };
+
+      if (!response.ok || !payload.ok) {
+        showError(messageFor(response.status, payload));
+        setBusy(false);
+        return;
+      }
+
+      // The ONLY redirect target is the hosted URL the server returned, and
+      // only when it is absolute https. Nothing from this page, the query
+      // string or the response is appended to it.
+      let hosted: URL;
+      try {
+        hosted = new URL(payload.redirectUrl ?? '');
+      } catch {
+        showError('Something went wrong starting checkout. Please try again.');
+        setBusy(false);
+        return;
+      }
+      if (hosted.protocol !== 'https:') {
+        showError('Something went wrong starting checkout. Please try again.');
+        setBusy(false);
+        return;
+      }
+
+      // Deliberately left busy: the tickets are now held and the browser is
+      // leaving for SumUp. Re-enabling would invite a second order.
+      window.location.assign(hosted.toString());
+    } catch {
+      showError('Could not reach the server. Check your connection and try again.');
+      setBusy(false);
+    }
   });
 </script>
 
@@ -356,6 +523,89 @@ const anyPurchasable = event.ticketTypes.some((t) => t.purchasable);
     font-weight: 800;
     font-size: var(--step-0);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Customer details (AMPED-07B) -------------------------------------- */
+
+  .tickets-form {
+    display: grid;
+    gap: var(--s-4);
+  }
+
+  .tickets-customer {
+    display: grid;
+    gap: var(--s-3);
+    padding: var(--s-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r);
+    background: var(--ink-inset);
+  }
+
+  .tickets-customer-legend {
+    padding-inline: var(--s-2);
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .field {
+    display: grid;
+    gap: var(--s-2);
+  }
+
+  .field label {
+    font-family: var(--font-display);
+    font-size: var(--step--1);
+    font-weight: 700;
+  }
+
+  .field input {
+    width: 100%;
+    /* 44px minimum target, matching the steppers. */
+    min-height: 2.75rem;
+    padding: var(--s-2) var(--s-3);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--r-sm);
+    background: var(--ink-raised-2);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--step-0);
+  }
+
+  .field input:focus-visible {
+    outline: 2px solid var(--volt);
+    outline-offset: 2px;
+    border-color: var(--volt);
+  }
+
+  .field input:user-invalid {
+    border-color: var(--stop);
+  }
+
+  .field-hint {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+  }
+
+  .checkout-error {
+    padding: var(--s-3);
+    border: 1px solid color-mix(in srgb, var(--stop) 55%, transparent);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--stop) 12%, transparent);
+    font-size: var(--step--1);
+    color: var(--text);
+  }
+
+  .checkout-error[hidden] {
+    display: none;
+  }
+
+  .checkout-secure {
+    font-size: var(--step--2);
+    color: var(--text-faint);
+    text-align: center;
   }
 
   /* --- Foot -------------------------------------------------------------- */

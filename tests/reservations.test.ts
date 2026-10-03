@@ -145,7 +145,7 @@ describe('AMPED-06B ticket reservations', () => {
   async function createAndReserve(probe: Probe, quantity: number) {
     const service = orders();
     const created = await service.createOrder(input(probe, quantity));
-    const begun = await service.beginPayment(created.orderId, provider());
+    const begun = await service.beginPayment(created.orderId, provider(), 'https://amped.test/checkout/return');
     return { service, created, begun };
   }
 
@@ -156,7 +156,7 @@ describe('AMPED-06B ticket reservations', () => {
     try {
       const service = orders();
       const created = await service.createOrder(input(probe, 2));
-      const begun = await service.beginPayment(created.orderId, provider());
+      const begun = await service.beginPayment(created.orderId, provider(), 'https://amped.test/checkout/return');
 
       const row = await db
         .prepare('select status, reservation_expires_at, paid_at from orders where id = ?')
@@ -252,7 +252,7 @@ describe('AMPED-06B ticket reservations', () => {
       try {
         const created = await service.createOrder(input(probe, 1));
         await expect(
-          service.beginPayment(created.orderId, provider()),
+          service.beginPayment(created.orderId, provider(), 'https://amped.test/checkout/return'),
         ).rejects.toBeInstanceOf(ConflictError);
         const row = await db
           .prepare('select status from orders where id = ?')
@@ -276,7 +276,7 @@ describe('AMPED-06B ticket reservations', () => {
       const service = orders();
       const second = await service.createOrder(input(probe, 3));
       await expect(
-        service.beginPayment(second.orderId, provider()),
+        service.beginPayment(second.orderId, provider(), 'https://amped.test/checkout/return'),
       ).rejects.toBeInstanceOf(ConflictError);
       const row = await db
         .prepare('select status from orders where id = ?')
@@ -298,7 +298,7 @@ describe('AMPED-06B ticket reservations', () => {
         marketingOptIn: false,
       });
       await expect(
-        service.beginPayment(multi.orderId, provider()),
+        service.beginPayment(multi.orderId, provider(), 'https://amped.test/checkout/return'),
       ).rejects.toBeInstanceOf(ConflictError);
       const multiRow = await db
         .prepare('select status from orders where id = ?')

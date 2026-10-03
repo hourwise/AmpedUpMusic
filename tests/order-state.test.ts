@@ -179,7 +179,7 @@ describe('AMPED-06A order state machine', () => {
     const provider = createMockPaymentProvider({ now: () => FIXED_NOW });
     const created = await service.createOrder(checkout());
 
-    const begun = await service.beginPayment(created.orderId, provider);
+    const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
     let row = await orderRow(created.orderId);
     expect(row?.status).toBe('awaiting_payment');
     expect(row?.reservation_expires_at).toMatch(ISO);
@@ -215,10 +215,10 @@ describe('AMPED-06A order state machine', () => {
       service.confirmPayment(created.orderId, 'mock_x', provider),
     ).rejects.toBeInstanceOf(ValidationError);
 
-    const begun = await service.beginPayment(created.orderId, provider);
+    const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
     // awaiting_payment cannot be cancelled through the pending-only path.
     await expect(service.cancelOrder(created.orderId)).rejects.toBeInstanceOf(ValidationError);
-    await expect(service.beginPayment(created.orderId, provider)).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return')).rejects.toBeInstanceOf(ConflictError);
 
     await service.cancelOrder(created.orderId).catch(() => {});
     const paid = await service.confirmPayment(created.orderId, begun.checkoutId, provider);
@@ -236,7 +236,7 @@ describe('AMPED-06A order state machine', () => {
 
     const provider = createMockPaymentProvider({ now: () => FIXED_NOW });
     const expired = await service.createOrder(checkout());
-    await service.beginPayment(expired.orderId, provider);
+    await service.beginPayment(expired.orderId, provider, 'https://amped.test/checkout/return');
     await service.expireOrder(expired.orderId);
     expect((await orderRow(expired.orderId))?.status).toBe('expired');
   });
@@ -297,7 +297,7 @@ describe('AMPED-06A order state machine', () => {
     const ticketsBefore = await db.prepare('select count(*) as n from tickets').first<{ n: number }>();
 
     const created = await service.createOrder(checkout());
-    const begun = await service.beginPayment(created.orderId, provider);
+    const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
     await service.confirmPayment(created.orderId, begun.checkoutId, provider);
 
     const orders = await db
@@ -358,20 +358,54 @@ describe('AMPED-06A order state machine', () => {
     expect(isReferenceCollision(new Error('network unavailable'))).toBe(false);
   });
 
-  it('implements the mock provider without network access or credentials', () => {
-    const files = [
+  /** Comments describe the boundary; only real code may breach it. */
+  const stripComments = (source: string): string =>
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('keeps the order state machine and the mock provider provider-agnostic', () => {
+    // These two must never learn about a specific payment company: the state
+    // machine talks only to the accepted PaymentProvider contract, and the
+    // mock exists precisely so that neither needs a network or a credential.
+    const agnostic = [
       join(root, 'src', 'services', 'payments', 'mock.ts'),
       join(root, 'src', 'services', 'orders', 'service.ts'),
-      join(root, 'src', 'pages', 'api', 'checkout', 'orders.ts'),
-      join(root, 'src', 'pages', 'api', 'checkout', 'confirm.ts'),
     ];
-    for (const file of files) {
-      const code = readFileSync(file, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '');
+    for (const file of agnostic) {
+      const code = stripComments(readFileSync(file, 'utf8'));
       expect(code, file).not.toMatch(/\bfetch\s*\(/);
       expect(code, file).not.toMatch(/sumup/i);
       expect(code, file).not.toMatch(/api[_-]?key/i);
+    }
+  });
+
+  it('keeps credentials and network calls out of the public checkout routes', () => {
+    // AMPED-07B wired SumUp in, so these routes now legitimately name it -
+    // but only to map a provider error to a safe response and to close the
+    // confirm route against the live provider. They must still never call the
+    // network themselves, never hold a credential, and never build a SumUp
+    // URL: all of that lives behind the adapter and the service locator.
+    const routes = [
+      join(root, 'src', 'pages', 'api', 'checkout', 'orders.ts'),
+      join(root, 'src', 'pages', 'api', 'checkout', 'confirm.ts'),
+    ];
+    for (const file of routes) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      expect(code, file).not.toMatch(/\bfetch\s*\(/);
+      expect(code, file).not.toMatch(/api[_-]?key/i);
+      expect(code, file).not.toMatch(/merchant/i);
+      expect(code, file).not.toMatch(/api\.sumup\.com/i);
+      expect(code, file).not.toMatch(/Bearer/i);
+
+      // Every surviving mention of SumUp is one of the two permitted shapes.
+      const mentions = code.match(/.*sumup.*/gi) ?? [];
+      for (const line of mentions) {
+        expect(
+          /from '@\/services\/payments\/sumup\/types\.ts'/.test(line) ||
+            /provider\.name === 'sumup'/.test(line) ||
+            /instanceof SumUpError/.test(line),
+          `${file}: unexpected SumUp reference -> ${line.trim()}`,
+        ).toBe(true);
+      }
     }
   });
 

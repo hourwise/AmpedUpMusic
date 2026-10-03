@@ -65,3 +65,20 @@ export class SumUpError extends Error {
 export function isAmbiguousProviderError(error: unknown): boolean {
   return error instanceof SumUpError && error.ambiguous;
 }
+
+/**
+ * The SumUp integration is not configured in this runtime (AMPED-07B).
+ *
+ * Thrown by the service locator when the server-side SumUp credentials are
+ * absent. It exists so that a missing credential fails CLOSED with a
+ * controlled "checkout unavailable" response: there is deliberately no
+ * fallback to the mock provider, because sending a real customer to a fake
+ * checkout would be worse than refusing to sell. The message is customer-safe
+ * and never names the variable that was missing.
+ */
+export class PaymentConfigurationError extends Error {
+  constructor(message = 'Checkout is temporarily unavailable.') {
+    super(message);
+    this.name = 'PaymentConfigurationError';
+  }
+}

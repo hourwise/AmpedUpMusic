@@ -147,7 +147,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
     try {
       const { service, created } = await checkout(probe, 2);
       const provider = createMockPaymentProvider({ now: () => FIXED_NOW });
-      const begun = await service.beginPayment(created.orderId, provider);
+      const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
       await service.confirmPayment(created.orderId, begun.checkoutId, provider);
 
       const tickets = await db
@@ -170,7 +170,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
     try {
       const { service, created } = await checkout(probe, 2);
       const provider = createMockPaymentProvider({ now: () => FIXED_NOW });
-      const begun = await service.beginPayment(created.orderId, provider);
+      const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
       await service.confirmPayment(created.orderId, begun.checkoutId, provider);
 
       const before = await inventory().ticketTypeInventory(probe.typeId);
@@ -219,7 +219,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
           customerEmail: 'authority@example.com',
           marketingOptIn: false,
         });
-        const begun = await service.beginPayment(created.orderId, provider);
+        const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
         await service.confirmPayment(created.orderId, begun.checkoutId, provider);
       }
 
@@ -281,7 +281,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
         customerEmail: 'authority@example.com',
         marketingOptIn: false,
       });
-      const begun = await service.beginPayment(created.orderId, provider);
+      const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
       await service.confirmPayment(created.orderId, begun.checkoutId, provider);
       expect((await inventory().ticketTypeInventory(probe.typeId))?.sold).toBe(3);
 
@@ -308,7 +308,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
       const { service, created } = await checkout(probe, 2);
       const provider = createMockPaymentProvider({ now: () => FIXED_NOW });
 
-      const begun = await service.beginPayment(created.orderId, provider);
+      const begun = await service.beginPayment(created.orderId, provider, 'https://amped.test/checkout/return');
       const held = await inventory().ticketTypeInventory(probe.typeId);
       expect(held?.sold).toBe(0);
       expect(held?.reserved).toBe(2);
@@ -331,7 +331,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
     try {
       const { service, created } = await checkout(probe, 2);
       const failing = createMockPaymentProvider({ outcome: 'failed' });
-      const begun = await service.beginPayment(created.orderId, failing);
+      const begun = await service.beginPayment(created.orderId, failing, 'https://amped.test/checkout/return');
       const result = await service.confirmPayment(created.orderId, begun.checkoutId, failing);
       expect(result.status).toBe('expired');
 

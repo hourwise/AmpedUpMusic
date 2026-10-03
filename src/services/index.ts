@@ -58,7 +58,8 @@ import {
   type SocialMutationService,
 } from './d1/social.ts';
 import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
-import { createMockPaymentProvider } from './payments/mock.ts';
+import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
+import { PaymentConfigurationError } from './payments/sumup/types.ts';
 import type { PaymentProvider } from './contracts.ts';
 import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
 
@@ -104,6 +105,33 @@ async function boundDatabase(): Promise<D1Database | undefined> {
   }
 }
 
+/**
+ * Read the server-side SumUp credentials (AMPED-07B).
+ *
+ * This is the ONLY place in the application that names these variables; the
+ * adapter takes them as constructor input so that no component, page or client
+ * script can reach them. Returns undefined when either is missing, which the
+ * checkout seam turns into a controlled refusal rather than a mock fallback.
+ */
+async function boundSumUpConfig(): Promise<
+  { apiKey: string; merchantCode: string } | undefined
+> {
+  try {
+    const runtime = (await import('cloudflare:workers')) as unknown as {
+      env?: { SUMUP_API_KEY?: string; SUMUP_MERCHANT_CODE?: string };
+    };
+    const apiKey = runtime.env?.SUMUP_API_KEY;
+    const merchantCode = runtime.env?.SUMUP_MERCHANT_CODE;
+    // Both or neither: a half-configured integration is a misconfiguration,
+    // not a degraded mode worth serving a customer.
+    if (!apiKey || !merchantCode) return undefined;
+    return { apiKey, merchantCode };
+  } catch {
+    // Node/Vitest, or a Worker without the secrets bound.
+    return undefined;
+  }
+}
+
 /** Read the private `MEDIA` R2 binding. Never a public bucket. */
 async function boundMediaBucket(): Promise<R2Bucket | undefined> {
   try {
@@ -118,6 +146,7 @@ async function boundMediaBucket(): Promise<R2Bucket | undefined> {
 
 const database = await boundDatabase();
 const mediaBucket = await boundMediaBucket();
+const sumUpConfig = await boundSumUpConfig();
 
 let cached: Services | null = null;
 let cachedGigMutations: GigMutationService | null = null;
@@ -127,7 +156,8 @@ let cachedEntityMutations: {
 } | null = null;
 let cachedMediaMutations: MediaMutationService | null = null;
 let cachedSocial: (SocialMutationService & SocialService) | null = null;
-let cachedCheckout: { orders: OrderMutationService; provider: PaymentProvider } | null = null;
+let cachedOrderMutations: OrderMutationService | null = null;
+let cachedPaymentProvider: PaymentProvider | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -241,22 +271,43 @@ export function getAdminSocial(): SocialMutationService & SocialService {
 }
 
 /**
- * The AMPED-06A checkout seam: the order state machine plus the mock payment
- * provider. Public checkout routes use this; the provider is swappable for the
- * SumUp adapter in AMPED-07A without changing callers.
+ * The order state machine alone, with no payment provider attached.
+ *
+ * Split out in AMPED-07B so that the reservation sweep keeps working on a
+ * runtime where SumUp is not configured. Expiring a hold needs a database, not
+ * a merchant account, and a missing credential must never stop stock being
+ * released back on sale.
+ */
+function orderMutations(): OrderMutationService {
+  if (!database) {
+    throw new Error('The D1 binding "DB" is not available, so checkout cannot run.');
+  }
+  cachedOrderMutations ??= createD1OrderMutations(database);
+  return cachedOrderMutations;
+}
+
+/**
+ * The checkout seam: the order state machine plus the REAL payment provider.
+ *
+ * AMPED-07B makes SumUp the runtime provider. There is deliberately NO
+ * fallback to `MockPaymentProvider` when the credentials are missing: a silent
+ * fallback would send a paying customer to a fake checkout, which is far worse
+ * than refusing to sell. A missing credential therefore fails closed with
+ * `PaymentConfigurationError`, which the checkout routes map to a controlled
+ * "checkout unavailable" response.
+ *
+ * Tests never reach this function: they construct `createD1OrderMutations()`
+ * directly and pass an explicit provider into `beginPayment`, which is the
+ * accepted injection seam.
  */
 export function getCheckout(): {
   orders: OrderMutationService;
   provider: PaymentProvider;
 } {
-  if (!database) {
-    throw new Error('The D1 binding "DB" is not available, so checkout cannot run.');
-  }
-  cachedCheckout ??= {
-    orders: createD1OrderMutations(database),
-    provider: createMockPaymentProvider(),
-  };
-  return cachedCheckout;
+  const orders = orderMutations();
+  if (!sumUpConfig) throw new PaymentConfigurationError();
+  cachedPaymentProvider ??= createSumUpPaymentProvider(sumUpConfig);
+  return { orders, provider: cachedPaymentProvider };
 }
 
 /**
@@ -264,7 +315,7 @@ export function getCheckout(): {
  * entry passes its platform time in; the SQL stays behind the service layer.
  */
 export function getReservationMaintenance(): OrderMutationService {
-  return getCheckout().orders;
+  return orderMutations();
 }
 
 export function getAdminGigMutations(): GigMutationService {

@@ -44,6 +44,13 @@ export interface CreateCheckoutRequest {
   currency: 'GBP';
   customerEmail: string;
   returnUrl: string;
+  /**
+   * The checkout lifetime, decided by the caller BEFORE this request is sent
+   * (AMPED-07B). It is transmitted as `valid_until` so that SumUp's session
+   * and the local reservation share one boundary rather than two independent
+   * 30-minute clocks separated by network latency.
+   */
+  validUntil: string;
 }
 
 export interface SumUpClient {
@@ -86,6 +93,7 @@ class SumUpRestClient implements SumUpClient {
       merchant_code: this.merchantCode,
       return_url: input.returnUrl,
       redirect_url: input.returnUrl,
+      valid_until: input.validUntil,
       hosted_checkout: { enabled: true },
     };
 

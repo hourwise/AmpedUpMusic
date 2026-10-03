@@ -15,6 +15,15 @@
  *    holding rule and no oversell protection: those are AMPED-06B/06C. The
  *    checkout window is written only because the accepted schema requires
  *    `reservation_expires_at` on an `awaiting_payment` row.
+ *
+ * AMPED-07B narrowed exactly two things here and nothing else:
+ *  - `reservation_expires_at` is now the provider's own `checkout.expiresAt`,
+ *    stored verbatim. There is no locally calculated 30-minute window any
+ *    more, because two independent clocks meant the local hold could outlive
+ *    the hosted payment session and keep stock off sale for a dead checkout.
+ *  - `beginPayment` takes an absolute `returnUrl` derived server-side from the
+ *    current request, because a real provider cannot be handed a relative path
+ *    and the browser must not choose where a payment session returns to.
  *  - No tickets are issued; issuance is AMPED-08A.
  *  - Refund transitions (`refunded`, `partially_refunded`) are not implemented:
  *    domain.ts documents `paid --> refunded` without defining partial-refund
@@ -35,7 +44,6 @@ import {
   createD1InventoryReservations,
   inventoryConflict,
 } from '../inventory/acquire.ts';
-import { CHECKOUT_WINDOW_MINUTES } from '../payments/mock.ts';
 
 export interface CheckoutItemInput {
   ticketTypeId: string;
@@ -74,7 +82,19 @@ export interface ConfirmedPayment {
 
 export interface OrderMutationService {
   createOrder(input: CheckoutInput): Promise<CreatedOrder>;
-  beginPayment(orderId: string, provider: PaymentProvider): Promise<BegunPayment>;
+  /**
+   * Create the provider checkout and activate the local reservation.
+   *
+   * `returnUrl` MUST be an absolute URL derived server-side from the current
+   * request (AMPED-07B). It is a parameter rather than a constant because the
+   * provider needs an origin, and because the browser must never be able to
+   * choose where a payment session returns to.
+   */
+  beginPayment(
+    orderId: string,
+    provider: PaymentProvider,
+    returnUrl: string,
+  ): Promise<BegunPayment>;
   /** The ONLY path into `paid`. */
   confirmPayment(
     orderId: string,
@@ -223,7 +243,13 @@ class D1OrderMutations implements OrderMutationService {
     throw new ConflictError('Could not allocate an order reference. Please try again.');
   }
 
-  async beginPayment(orderId: string, provider: PaymentProvider): Promise<BegunPayment> {
+  async beginPayment(
+    orderId: string,
+    provider: PaymentProvider,
+    returnUrl: string,
+  ): Promise<BegunPayment> {
+    assertAbsoluteReturnUrl(returnUrl);
+
     const order = await this.loadOrder(orderId);
     if (order.status === 'awaiting_payment') {
       throw new ConflictError('Payment for this order has already started.');
@@ -242,17 +268,20 @@ class D1OrderMutations implements OrderMutationService {
       amountInPence: order.total_in_pence,
       currency: 'GBP',
       customerEmail: order.customer_email,
-      returnUrl: '/checkout/return',
+      returnUrl,
     });
 
-    // ONE canonical logical now for the capacity cutoff, the reservation
-    // expiry and the row's updated_at - the trigger reads the same instant via
-    // NEW.updated_at.
+    // ONE canonical logical now for the capacity cutoff and the row's
+    // updated_at - the trigger reads the same instant via NEW.updated_at.
     const now = this.now();
     const at = now.toISOString();
-    const reservationExpiresAt = new Date(
-      now.getTime() + CHECKOUT_WINDOW_MINUTES * 60_000,
-    ).toISOString();
+
+    // ONE expiry clock (AMPED-07B). The reservation expires exactly when the
+    // provider's checkout expires - the value is stored verbatim, never
+    // recomputed locally, so there is no second 30-minute boundary that could
+    // hold stock after the customer's payment session has already died.
+    const reservationExpiresAt = checkout.expiresAt;
+    assertUsableProviderExpiry(reservationExpiresAt, now);
 
     // PRIMARY stock authority (AMPED-06C): one conditional mutation that
     // checks the whole basket atomically. The advisory read above is not the
@@ -565,6 +594,48 @@ class D1OrderMutations implements OrderMutationService {
     const value = Math.max(this.now().getTime(), this.lastStamp + 1);
     this.lastStamp = value;
     return new Date(value).toISOString();
+  }
+}
+
+/**
+ * The return URL must be absolute and http(s), and must come from the server.
+ *
+ * A relative path is not a programming style question here: SumUp rejects one,
+ * and silently "fixing" it against a guessed origin would send customers back
+ * to the wrong site. A bad value is a server misconfiguration, so it fails
+ * before any provider call and therefore before any reservation exists.
+ */
+function assertAbsoluteReturnUrl(returnUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(returnUrl);
+  } catch {
+    throw new Error('The checkout return URL was not absolute.');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('The checkout return URL was not an http(s) URL.');
+  }
+}
+
+/**
+ * The provider's expiry must be usable as the local reservation boundary.
+ *
+ * Two failures matter and neither may be papered over:
+ *  - An unparseable timestamp would make SQLite's `julianday()` return NULL,
+ *    so the hold would never count as active and the stock would leak.
+ *  - An already-past expiry would reserve nothing for the same reason.
+ *
+ * Both are refused BEFORE the reservation is acquired, leaving the order
+ * `pending` with no hold. Widening the local window to compensate is exactly
+ * the second clock this slice removed, so it is deliberately not an option.
+ */
+function assertUsableProviderExpiry(expiresAt: string, now: Date): void {
+  const parsed = Date.parse(expiresAt);
+  if (!Number.isFinite(parsed)) {
+    throw new Error('The payment provider returned an unusable checkout expiry.');
+  }
+  if (parsed <= now.getTime()) {
+    throw new Error('The payment provider returned a checkout that had already expired.');
   }
 }
 

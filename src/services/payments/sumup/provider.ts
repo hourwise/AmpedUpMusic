@@ -8,10 +8,14 @@
  *
  * Mapping decisions:
  *  - createCheckout -> POST /v0.1/checkouts with hosted_checkout.enabled=true;
- *    the hosted_checkout_url becomes `redirectUrl`. `expiresAt` uses SumUp's
- *    `valid_until`; when SumUp omits it (it is documented nullable) the
- *    documented 30-minute hosted-checkout lifetime is used, derived from the
- *    injected clock - this is the checkout window, never a payment timestamp.
+ *    the hosted_checkout_url becomes `redirectUrl`. The checkout lifetime is
+ *    computed ONCE before the request (injected clock + 30 minutes), sent as
+ *    `valid_until`, and reused verbatim as `expiresAt` when SumUp omits it
+ *    from the response (it is documented nullable). When SumUp does return a
+ *    `valid_until` that value is authoritative, even if it differs from the
+ *    requested one. There is deliberately no post-response clock read: that
+ *    would reintroduce a second expiry boundary offset by network latency.
+ *    This is the checkout window, never a payment timestamp.
  *  - confirm -> GET /v0.1/checkouts/{id}: PENDING -> pending, PAID -> paid,
  *    FAILED and EXPIRED -> failed (the accepted contract's definitive failure,
  *    which the order service turns into `expired`).
@@ -105,12 +109,22 @@ class SumUpPaymentProvider implements PaymentProvider {
     customerEmail: string;
     returnUrl: string;
   }): Promise<{ checkoutId: string; redirectUrl: string; expiresAt: string }> {
+    // ONE expiry clock (AMPED-07B). The checkout lifetime is decided HERE,
+    // before the network request, and sent to SumUp as `valid_until`. The same
+    // value is the fallback if SumUp omits it from the response, so network
+    // latency can never produce a second, later boundary than the one the
+    // provider was asked for. Nothing recomputes `now` after the POST returns.
+    const requestedExpiresAt = new Date(
+      this.now().getTime() + SUMUP_HOSTED_CHECKOUT_MINUTES * 60_000,
+    ).toISOString();
+
     const payload = await this.client.createCheckout({
       reference: input.reference,
       amountInPence: input.amountInPence,
       currency: input.currency,
       customerEmail: input.customerEmail,
       returnUrl: input.returnUrl,
+      validUntil: requestedExpiresAt,
     });
 
     const checkoutId = requiredString(payload.id);
@@ -125,10 +139,11 @@ class SumUpPaymentProvider implements PaymentProvider {
       );
     }
 
+    // SumUp's own answer wins when it gives one - even if it differs from what
+    // we asked for - because the hosted session really does expire when SumUp
+    // says it does, and the local reservation must match that, not our wish.
     const validUntil = requiredString(payload.valid_until);
-    const expiresAt =
-      validUntil ??
-      new Date(this.now().getTime() + SUMUP_HOSTED_CHECKOUT_MINUTES * 60_000).toISOString();
+    const expiresAt = validUntil ?? requestedExpiresAt;
 
     return { checkoutId, redirectUrl, expiresAt };
   }

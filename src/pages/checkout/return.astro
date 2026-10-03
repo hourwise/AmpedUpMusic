@@ -1,0 +1,91 @@
+---
+/**
+ * /checkout/return - the page a customer lands on after the SumUp Hosted
+ * Checkout (AMPED-07B).
+ *
+ * This page has NO authority over payment and deliberately knows nothing.
+ *
+ * It does not look up an order, read a query parameter, call SumUp, or write
+ * anything. It cannot: the server never told the browser which order this is,
+ * and the only thing a return URL proves is that a browser was pointed at it.
+ * A customer can reach this page by typing the address, by abandoning the
+ * hosted page, or by paying successfully, and all three must render the same
+ * words - otherwise the page would be making a claim it has no way to check.
+ *
+ * `?status=paid` therefore changes nothing here. Authoritative confirmation is
+ * AMPED-07C's job, server-side, by reading the state back from SumUp.
+ *
+ * Rendered on demand and never cached: the wording is about an order in
+ * flight, so a stored copy in a shared cache or a back-button restore would be
+ * stale the moment confirmation completes.
+ */
+import SiteLayout from '@/layouts/SiteLayout.astro';
+import PageHeader from '@/components/site/PageHeader.astro';
+import Callout from '@/components/ui/Callout.astro';
+import Button from '@/components/ui/Button.astro';
+
+export const prerender = false;
+
+Astro.response.headers.set('Cache-Control', 'no-store, max-age=0');
+---
+
+<SiteLayout
+  title="Confirming your payment"
+  description="We are confirming your payment with the payment provider."
+  noindex
+>
+  <PageHeader
+    eyebrow="Checkout"
+    title="Confirming your payment"
+    intro="Hang on a moment - we are checking this with the payment provider."
+    trail={[{ label: 'Home', href: '/' }]}
+    wide={false}
+  />
+
+  <div class="container return-page">
+    <Callout tone="info" label="In progress" title="Your payment is being confirmed">
+      <p>
+        We are confirming this with our payment provider now. Confirmation is done by our
+        servers, not by this page, so please do not treat this screen as a receipt.
+      </p>
+    </Callout>
+
+    <div class="prose">
+      <h2>What happens next</h2>
+      <p>
+        Your tickets have <strong>not been issued yet</strong>. Once payment confirmation
+        completes, your tickets and QR codes are emailed to the address you gave at checkout.
+        That email is the thing to keep - it is what gets you in.
+      </p>
+      <p>
+        If the confirmation does not complete, nothing is charged and the tickets go back on
+        sale. You will not be charged twice for refreshing this page or coming back to it.
+      </p>
+
+      <h2>If something looks wrong</h2>
+      <p>
+        If you do not receive a confirmation email, check your spam folder first, then
+        <a href="/contact">get in touch</a> and quote the name and email address you used.
+        Please do not buy again until you have heard back from us.
+      </p>
+    </div>
+
+    <div class="return-actions">
+      <Button href="/gigs" variant="outline">Back to what's on</Button>
+    </div>
+  </div>
+</SiteLayout>
+
+<style>
+  .return-page {
+    display: grid;
+    gap: var(--s-5);
+    padding-block: var(--s-6);
+  }
+
+  .return-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+  }
+</style>
