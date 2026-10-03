@@ -15,6 +15,14 @@
  * `?status=paid` therefore changes nothing here. Authoritative confirmation is
  * AMPED-07C's job, server-side, by reading the state back from SumUp.
  *
+ * The same ignorance cuts the other way, which is easy to get wrong: the page
+ * must not reassure a customer that nothing was charged, that the payment
+ * failed, or that the tickets are back on sale. A payment can succeed at SumUp
+ * while our confirmation is delayed or unavailable, so "no confirmation yet"
+ * is not evidence of "no charge". Telling someone their money is safe and then
+ * taking it is worse than telling them to wait. The copy below therefore says
+ * only what is certainly true, and tells them not to pay twice.
+ *
  * Rendered on demand and never cached: the wording is about an order in
  * flight, so a stored copy in a shared cache or a back-button restore would be
  * stale the moment confirmation completes.
@@ -58,8 +66,11 @@ Astro.response.headers.set('Cache-Control', 'no-store, max-age=0');
         That email is the thing to keep - it is what gets you in.
       </p>
       <p>
-        If the confirmation does not complete, nothing is charged and the tickets go back on
-        sale. You will not be charged twice for refreshing this page or coming back to it.
+        If confirmation is taking a while, please <strong>do not pay again</strong>. A delay
+        here does not mean the payment failed - it only means we have not finished checking
+        it. We verify the payment with our payment provider before any order is confirmed or
+        released, so a second attempt risks paying twice for the same tickets. Refreshing
+        this page or coming back to it does not start another payment.
       </p>
 
       <h2>If something looks wrong</h2>

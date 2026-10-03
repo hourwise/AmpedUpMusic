@@ -704,6 +704,32 @@ describe('AMPED-07B hosted checkout', () => {
       expect(body).not.toMatch(/thank you for your payment/i);
     });
 
+    it('never promises that no charge was taken', () => {
+      // The page cannot know. A payment can succeed at SumUp while our own
+      // confirmation is delayed or unavailable, so "not confirmed yet" is not
+      // evidence of "not charged". Promising someone their money is safe and
+      // then taking it is worse than asking them to wait.
+      expect(body).not.toMatch(/nothing is charged/i);
+      expect(body).not.toMatch(/nothing was charged/i);
+      expect(body).not.toMatch(/you have not been charged/i);
+      expect(body).not.toMatch(/no payment was taken/i);
+      expect(body).not.toMatch(/no money has left/i);
+      // Nor may it assert the opposite outcome, or that stock was released.
+      expect(body).not.toMatch(/your payment failed/i);
+      expect(body).not.toMatch(/the payment was declined/i);
+      expect(body).not.toMatch(/back on sale/i);
+      expect(body).not.toMatch(/reservation has been released/i);
+    });
+
+    it('tells the customer not to pay again while confirmation is pending', () => {
+      // The one instruction that actually protects them from a double charge.
+      expect(body).toMatch(/do not pay again/i);
+      // And an explicit promise that the status will be established for them.
+      expect(body).toMatch(/verify the payment/i);
+      // A delay is explicitly not presented as failure.
+      expect(body).toMatch(/does not mean the payment failed/i);
+    });
+
     it('performs no lookup, no mutation and no provider call', () => {
       // Comments may discuss SumUp; code may not touch it.
       const code = page
