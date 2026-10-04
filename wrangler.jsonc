@@ -95,6 +95,12 @@
   "env": {
     "staging": {
       "name": "ampedup-staging",
+      // Keep the smoke-test hostname available. The Worker-level Access app
+      // protects it and the Custom Domain with the same staging policy.
+      "workers_dev": true,
+      "routes": [
+        { "pattern": "staging.ampedupmusicpromo.co.uk", "custom_domain": true }
+      ],
       "vars": {
         "AMPED_ENV": "staging"
       },
