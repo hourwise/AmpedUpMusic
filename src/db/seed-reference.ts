@@ -97,7 +97,7 @@ export function buildReferenceRows(now: Date): ReferenceRows {
       standard_notes:
         'Big room, concrete floor, proper PA. Parking on Bispham Road is free after 18:00. The 14 bus stops two minutes from the door.',
       accessibility_info:
-        'Fully step-free throughout, including the bar and toilets. Two accessible viewing spaces at the front of house desk - reserve one when you book by emailing tickets@ampedupmusic.co.uk.',
+        'Fully step-free throughout, including the bar and toilets. Two accessible viewing spaces at the front of house desk - reserve one when you book by emailing tickets@ampedupmusicpromo.co.uk.',
       capacity: 350,
       website_url: null,
       map_url: `${MAP_QUERY_BASE}Blackpool%20FY2`,
@@ -366,7 +366,7 @@ export function buildReferenceRows(now: Date): ReferenceRows {
       ends_at: londonAt(now, 12, '23:00'),
       age_restriction: '16-plus',
       accessibility_notes:
-        'Two accessible viewing positions are held for every Amped Up show at this venue. Email tickets@ampedupmusic.co.uk after booking and we will reserve one.',
+        'Two accessible viewing positions are held for every Amped Up show at this venue. Email tickets@ampedupmusicpromo.co.uk after booking and we will reserve one.',
       ...anyaCredit,
       ...socialLinkColumns({
         instagram: 'https://example.com/instagram/ampedup/glasshearts',
@@ -406,7 +406,7 @@ export function buildReferenceRows(now: Date): ReferenceRows {
       ends_at: londonAt(now, 26, '23:30'),
       age_restriction: '14-plus',
       accessibility_notes:
-        'Step-free throughout. Two accessible viewing spaces at the front of house desk - reserve one by emailing tickets@ampedupmusic.co.uk.',
+        'Step-free throughout. Two accessible viewing spaces at the front of house desk - reserve one by emailing tickets@ampedupmusicpromo.co.uk.',
       ...anyaCredit,
       ...socialLinkColumns({
         instagram: 'https://example.com/instagram/ampedup/northernstatic',
@@ -476,7 +476,7 @@ export function buildReferenceRows(now: Date): ReferenceRows {
       strapline: 'Amped Up presents',
       description: 'Paper Lions in the smallest room we use.',
       status_message:
-        'This show has been cancelled. The venue has a licensing problem it could not resolve in time and we were unable to move the date. Everyone who bought a ticket has been refunded in full and should see the money back within five working days. If you have not, email tickets@ampedupmusic.co.uk and we will chase it.',
+        'This show has been cancelled. The venue has a licensing problem it could not resolve in time and we were unable to move the date. Everyone who bought a ticket has been refunded in full and should see the money back within five working days. If you have not, email tickets@ampedupmusicpromo.co.uk and we will chase it.',
       venue_id: 'ven_cellar',
       doors_at: londonAt(now, 47, '19:30'),
       starts_at: londonAt(now, 47, '20:15'),

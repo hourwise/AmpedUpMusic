@@ -1104,6 +1104,118 @@ so it needs no pre-apply data check of its own.
 
 ---
 
+## Phase CF — Cloudflare hosting
+
+### AMPED-CF-00A — Pre-staging security and runtime repair
+
+**Objective** — Remove the code and configuration blockers that stood between the accepted
+application and a first hosted Worker.
+
+**Preconditions** — AMPED-CF-00 preflight accepted; AMPED-07D2-3 accepted at `3b3d793`.
+
+#### Deployment architecture: Cloudflare Workers with Static Assets
+
+**Pages is rejected.** The application exports a `scheduled` handler (`src/worker/entry.ts`) that
+exists solely because the Astro adapter's own entry exports only `fetch`. Pages Functions have no
+cron triggers, so moving to Pages would mean deleting the reconciliation and discrepancy passes or
+running a second Worker to host them. Nothing forces that trade.
+
+`astro build` emits a **redirected Wrangler configuration** — `.wrangler/deploy/config.json`
+points at `dist/server/wrangler.json`, and that generated file is what `wrangler dev` and
+`wrangler deploy` actually use. Two consequences that are easy to get wrong:
+
+- The root `wrangler.jsonc` is an **input** to generation, not the deployed config. Its
+  `assets.directory` is overridden to `../client` by the adapter. It previously read `./dist` —
+  the directory containing both the browser assets and the server bundle — which invited the
+  reasonable but false conclusion that the server bundle was being published. Corrected to
+  `./dist/client` so the file documents reality. Verified: the build still resolves `/_astro/*`
+  and still does not serve `dist/server/*`.
+- **Named Wrangler environments are resolved at BUILD time from `CLOUDFLARE_ENV`, not from the
+  `--env` flag at deploy time.** Building without it and deploying with `--env staging` silently
+  produced `AMPED_ENV ("development")` and the default bindings — no error, just the wrong
+  environment. Both halves are required:
+
+  ```
+  CLOUDFLARE_ENV=staging npm run build
+  npx wrangler deploy --env staging
+  ```
+
+#### Admin mutation origin defence
+
+Cloudflare Access answers *who is this*; it cannot answer *did they mean to send this*. The
+operator credential is ambient, so a hostile page can make an authenticated browser act. Whether
+Cloudflare's `CF_Authorization` cookie would block that depends on a `SameSite` attribute this
+application neither controls nor can observe — not a basis for exposing financial mutations.
+
+One shared guard (`guardAdminMutation`, `src/lib/access.ts`) now runs in middleware for the whole
+`/api/admin` namespace, after identity and before any handler. All **22** admin routes are
+mutations; there is no admin GET API to exempt.
+
+The rule, in order: safe methods pass → `Sec-Fetch-Site` is believed when present and only
+`same-origin` passes (`same-site` is rejected too, because admin and storefront share one
+hostname by design) → otherwise `Origin` must equal the request's own origin → when **both** are
+absent the request passes, as a documented compatibility policy for server-to-server and CLI
+clients, which carry no ambient session to hijack. The expected origin is derived from the
+request, so the guard is correct on localhost, `*.workers.dev` and any custom domain with no list
+to maintain. No CSRF token system was introduced: one would add a session, a rotation story and a
+failure mode to defend a surface fetch metadata already closes.
+
+`/api/webhooks/sumup` and the customer checkout routes are deliberately outside the guard. SumUp
+sends neither header, and the webhook carries zero payment authority by design.
+
+#### Astro sessions removed
+
+No consumer exists anywhere in `src/` — no `Astro.session`, no `SESSION` binding reference;
+operator identity comes from the verified Access JWT via `locals.operator`. Left on, the adapter
+emitted a `SESSION` KV binding with **no namespace id**, which a real deploy rejects. Rather than
+create a throwaway namespace to satisfy a facility nothing uses, `session: false` turns it off.
+Verified: the generated config now contains `kv_namespaces: []`.
+
+#### Canonical identity corrected
+
+`ampedupmusic.co.uk` (no "promo") was never registered. `astro.config.mjs` and `src/lib/site.ts`
+used it while `src/lib/seo.ts` used the real `ampedupmusicpromo.co.uk` — the two disagreed.
+Reconciled on the live zone, along with `hello@` and `tickets@`. Four seeded venue/cancellation
+messages telling customers to email the dead address were also corrected; fabricated audit-actor
+names (`anya@`, `jay@`) keep the old domain deliberately — they name nobody real and instruct
+nobody. A test now fails if a contact address or site URL on the unregistered domain reappears.
+
+#### Staging must never advertise itself
+
+Indexing is **opt-in**: only `AMPED_ENV=production` at build time marks a build indexable, and the
+default is not. Read at build time rather than runtime because four pages are prerendered, so
+their `<meta robots>` is fixed when they are built — a runtime lookup would be ignored by exactly
+the pages most likely to be crawled.
+
+The opposite default was considered and rejected: forgetting the flag on a production build gives
+a site that is not indexed, visible at a glance and fixed by one rebuild, whereas forgetting it on
+staging publishes a duplicate of the real site under the brand's own name. `robots.txt` moved from
+a static file to a generated route for the same reason — the static one would have shipped
+`Allow: /` and advertised the production sitemap from a staging host. Indexing is a courtesy to
+crawlers; Cloudflare Access is what actually keeps staging private.
+
+#### Staging environment prepared, cron off
+
+`wrangler.jsonc` gains an `env.staging` block: name `ampedup-staging`, `AMPED_ENV=staging`, and
+**`triggers.crons: []`**. Omitting `triggers` was tried first and the top-level five-minute cron
+came through anyway; an empty array is what actually stops it. A fresh deployment must not begin
+calling a payment provider on a timer before anyone has confirmed its configuration. D1 and R2
+bindings are intentionally absent — CF-01 adds them with ids the operator creates.
+
+#### Staging topology (unchanged from CF-00, restated)
+
+One hostname, `staging.ampedupmusicpromo.co.uk`, with `/admin` inside it. A separate admin
+hostname would be actively harmful: the checkout derives its customer return URL from the live
+request origin, so an admin action on a second host could mint checkout URLs on the wrong origin.
+
+#### Deferred
+
+- `staging` branch creation — after this slice is accepted.
+- Cloudflare resources: D1, R2, Access applications, DNS — all CF-01.
+- The full README / PCGSoft AUTO rewrite remains its own pre-launch gate.
+
+---
+
 ## Phase 08 — Tickets and email
 
 ### AMPED-08A — Ticket issuance

@@ -188,6 +188,105 @@ export async function evaluateAccess(input: {
  * The single denial response. Plain, minimal and cache-free: no stack trace,
  * no token, no verification detail.
  */
+/**
+ * Cross-site request defence for admin mutations (AMPED-CF-00A).
+ *
+ * WHY THIS IS NEEDED AT ALL
+ * Admin identity comes from the `cf-access-jwt-assertion` header that
+ * Cloudflare Access injects once a browser holds a valid `CF_Authorization`
+ * cookie. That is an ambient credential: the browser attaches it to ANY
+ * request the browser is persuaded to make, including one triggered by a
+ * hostile page. Whether such a request carries the cookie at all depends on
+ * Cloudflare's own `SameSite` setting, which this application neither
+ * controls nor can observe. Resting a financial state change on a third
+ * party's cookie attribute is not a defence, so the application adds its own.
+ *
+ * THE RULE
+ *  - Safe methods pass. Reading an admin page is not a state change, and
+ *    every `/api/admin` route in this repository is a mutation anyway.
+ *  - `Sec-Fetch-Site` is believed when present: only `same-origin` is allowed.
+ *    Browsers set it themselves and script cannot forge it. `same-site` is
+ *    rejected too - admin and the storefront share ONE hostname by design, so
+ *    a sibling subdomain posting here is not a flow we have, and a compromised
+ *    neighbour is exactly the attacker this guard exists for.
+ *  - Otherwise `Origin` must equal the request's own origin. The comparison is
+ *    derived from the request rather than a configured hostname, so it is
+ *    correct on localhost, on *.workers.dev and on any custom domain without
+ *    anybody remembering to update a list.
+ *  - When BOTH are absent the request is allowed. This is the documented
+ *    compatibility policy: a browser mounting a cross-origin POST always
+ *    sends `Origin`, and every browser recent enough to matter also sends
+ *    `Sec-Fetch-Site`. A request carrying neither is a server-to-server or
+ *    command-line client, which cannot be a confused deputy because no
+ *    ambient operator session exists to hijack.
+ *
+ * No CSRF token is introduced. One would add a session, a rotation story and
+ * a failure mode, to defend a surface that fetch metadata already closes.
+ */
+const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export type OriginDecision = 'allow' | 'reject-cross-site' | 'reject-foreign-origin';
+
+/** Pure decision, so every branch is testable without a server. */
+export function evaluateRequestOrigin(input: {
+  method: string;
+  url: string;
+  secFetchSite: string | null;
+  origin: string | null;
+}): OriginDecision {
+  if (SAFE_METHODS.has(input.method.toUpperCase())) return 'allow';
+
+  if (input.secFetchSite !== null) {
+    return input.secFetchSite === 'same-origin' ? 'allow' : 'reject-cross-site';
+  }
+
+  if (input.origin !== null) {
+    let expected: string;
+    try {
+      expected = new URL(input.url).origin;
+    } catch {
+      // An unparseable request URL cannot be proven same-origin.
+      return 'reject-foreign-origin';
+    }
+    return input.origin === expected ? 'allow' : 'reject-foreign-origin';
+  }
+
+  return 'allow';
+}
+
+/**
+ * The shared guard. Returns a denial to send, or null to continue.
+ *
+ * Deliberately one function covering the whole `/api/admin` namespace rather
+ * than a check pasted into each route: there are 22 mutation routes today and
+ * the twenty-third must be protected on the day it is written, not on the day
+ * somebody remembers.
+ */
+export function guardAdminMutation(request: Request): Response | null {
+  const { pathname } = new URL(request.url);
+  if (!isProtectedPath(pathname)) return null;
+
+  const decision = evaluateRequestOrigin({
+    method: request.method,
+    url: request.url,
+    secFetchSite: request.headers.get('sec-fetch-site'),
+    origin: request.headers.get('origin'),
+  });
+
+  return decision === 'allow' ? null : crossOriginDeniedResponse();
+}
+
+/** Indistinguishable from any other refusal: it reveals nothing. */
+export function crossOriginDeniedResponse(): Response {
+  return new Response('Forbidden', {
+    status: 403,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 export function accessDeniedResponse(): Response {
   return new Response('Forbidden', {
     status: 403,

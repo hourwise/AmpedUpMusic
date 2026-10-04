@@ -114,15 +114,29 @@ describe('admin noindex', () => {
 });
 
 describe('robots.txt', () => {
-  const robots = readFileSync(join(root, 'public', 'robots.txt'), 'utf8');
+  // AMPED-CF-00A turned this into a generated route, because a static file
+  // would have shipped `Allow: /` and the PRODUCTION sitemap from staging.
+  const source = readFileSync(join(root, 'src', 'pages', 'robots.txt.ts'), 'utf8');
+  const production = source.slice(source.indexOf('const PRODUCTION'), source.indexOf('const NON_PRODUCTION'));
+  const nonProduction = source.slice(source.indexOf('const NON_PRODUCTION'), source.indexOf('export function GET'));
 
-  it('advertises the .co.uk sitemap', () => {
-    expect(robots).toContain('Sitemap: https://ampedupmusicpromo.co.uk/sitemap.xml');
+  it('advertises the .co.uk sitemap in production', () => {
+    expect(production).toContain('${CANONICAL_ORIGIN}/sitemap.xml');
   });
 
-  it('allows the public site and disallows admin', () => {
-    expect(robots).toContain('Allow: /');
-    expect(robots).toContain('Disallow: /admin');
+  it('allows the public site and disallows admin in production', () => {
+    expect(production).toContain('Allow: /');
+    expect(production).toContain('Disallow: /admin');
+  });
+
+  it('disallows everything, and advertises no sitemap, off production', () => {
+    expect(nonProduction).toContain('Disallow: /');
+    expect(nonProduction).not.toContain('Allow: /');
+    expect(nonProduction).not.toContain('Sitemap:');
+  });
+
+  it('chooses between them on the build environment, not a hostname', () => {
+    expect(source).toContain('IS_INDEXABLE ? PRODUCTION : NON_PRODUCTION');
   });
 });
 

@@ -7,6 +7,7 @@
 import '@/styles/tokens.css';
 import '@/styles/base.css';
 import { SITE } from '@/lib/site.ts';
+import { IS_INDEXABLE } from '@/lib/environment.ts';
 import {
   absoluteUrl,
   DEFAULT_SOCIAL_IMAGE,
@@ -38,6 +39,12 @@ const {
   lockViewport = false,
 } = Astro.props;
 
+// AMPED-CF-00A: a non-production build never invites crawlers, whatever the
+// page asked for. Staging serves the same content as production on public
+// HTTPS, and a duplicate of the real site under the brand's own name is slow
+// to notice and slow to undo.
+const blockIndexing = noindex || !IS_INDEXABLE;
+
 const resolvedTitle = pageTitle(title);
 const canonicalUrl = canonical ? absoluteUrl(canonical) : absoluteUrl(Astro.url.pathname);
 const imageUrl = absoluteUrl(resolveSocialImage(image));
@@ -56,7 +63,7 @@ const imageUrl = absoluteUrl(resolveSocialImage(image));
     <title>{resolvedTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
-    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {blockIndexing && <meta name="robots" content="noindex, nofollow" />}
 
     <meta name="theme-color" content="#08080b" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

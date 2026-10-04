@@ -16,6 +16,11 @@
  * The verifier is built once per isolate and only when configuration is
  * present; the team's remote JWKS is cached and revalidated by `jose`, so key
  * rotation needs no code change.
+ *
+ * AMPED-CF-00A adds a second, independent question. Access answers "who is
+ * this?"; it cannot answer "did they mean to send this?". Every admin
+ * credential here is ambient, so a state-changing request is additionally
+ * required to prove it came from this origin. See `guardAdminMutation`.
  */
 
 import { defineMiddleware } from 'astro:middleware';
@@ -23,6 +28,7 @@ import {
   accessDeniedResponse,
   createAccessVerifier,
   evaluateAccess,
+  guardAdminMutation,
   isProtectedPath,
   runtimeAccessConfig,
   type AccessVerifier,
@@ -49,6 +55,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
   });
 
   if (decision.action !== 'allow') return accessDeniedResponse();
+
+  // AMPED-CF-00A. Identity is established; now check that the BROWSER meant
+  // to send this. Access proves who the operator is, not that they intended
+  // the request - a hostile page can make an authenticated browser act. The
+  // check runs after Access so an unauthenticated caller still gets exactly
+  // the refusal it always did, and before `next()` so no handler can run.
+  const crossSite = guardAdminMutation(context.request);
+  if (crossSite) return crossSite;
 
   // Verified: hand the operator to the admin layout. Verified claims only.
   context.locals.operator = decision.operator;

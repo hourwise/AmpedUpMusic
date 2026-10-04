@@ -9,12 +9,12 @@
 export const SITE = {
   name: 'Amped Up Music Promotions',
   shortName: 'Amped Up',
-  url: 'https://ampedupmusic.co.uk',
+  url: 'https://ampedupmusicpromo.co.uk',
   tagline: 'Live music, properly promoted.',
   description:
     'Amped Up Music Promotions puts on independent live music across the North West. Gig listings, tickets and everything you need for the night.',
-  email: 'hello@ampedupmusic.co.uk',
-  ticketsEmail: 'tickets@ampedupmusic.co.uk',
+  email: 'hello@ampedupmusicpromo.co.uk',
+  ticketsEmail: 'tickets@ampedupmusicpromo.co.uk',
   locale: 'en-GB',
   region: 'North West England',
   social: {

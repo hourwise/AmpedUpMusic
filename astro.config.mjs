@@ -12,8 +12,16 @@ import cloudflare from '@astrojs/cloudflare';
  * the page will still be static once D1 lands (legal/info pages).
  */
 export default defineConfig({
-  site: 'https://ampedupmusic.co.uk',
+  // The live zone. `ampedupmusic.co.uk` (no "promo") was never registered -
+  // it was a typo that disagreed with CANONICAL_ORIGIN in src/lib/seo.ts.
+  site: 'https://ampedupmusicpromo.co.uk',
   output: 'server',
+  // AMPED-CF-00A: no page uses Astro.session, and leaving it on makes the
+  // adapter emit a `SESSION` KV binding with no namespace id - which a real
+  // `wrangler deploy` rejects. Rather than invent a throwaway namespace to
+  // satisfy a facility nothing uses, the facility is turned off. Switch this
+  // back on, with a real KV namespace, if sessions are ever actually needed.
+  session: false,
   adapter: cloudflare({
     // AMPED-01 ships its own self-contained SVG artwork, so no Cloudflare
     // Images binding is required yet. AMPED-05A should revisit this once real

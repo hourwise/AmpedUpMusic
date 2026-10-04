@@ -6,7 +6,7 @@
  * the most common scaffold regression - a link in the footer pointing at a
  * page nobody built - without needing a browser.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -126,7 +126,9 @@ describe('scaffold hygiene', () => {
 
   it('keeps admin out of the search index', () => {
     // robots.txt is the first line; noindex on the pages is the second.
-    const robots = join(root, 'public', 'robots.txt');
+    // Generated since AMPED-CF-00A so staging can disallow everything.
+    const robots = join(root, 'src', 'pages', 'robots.txt.ts');
     expect(existsSync(robots)).toBe(true);
+    expect(readFileSync(robots, 'utf8')).toContain('Disallow: /admin');
   });
 });

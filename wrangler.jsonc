@@ -29,8 +29,16 @@
   },
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  // `astro build` emits a REDIRECTED Wrangler configuration
+  // (.wrangler/deploy/config.json -> dist/server/wrangler.json) and that is
+  // what `wrangler dev` and `wrangler deploy` actually use; it sets this to
+  // `../client` itself. This value is therefore not what runs - but it said
+  // `./dist`, which is the directory holding BOTH the browser assets and the
+  // server bundle, and anyone reading it would reasonably conclude the server
+  // bundle was being published. It now names the directory the build really
+  // serves, so the file documents reality instead of contradicting it.
   "assets": {
-    "directory": "./dist",
+    "directory": "./dist/client",
     "binding": "ASSETS"
   },
   "observability": {
@@ -63,7 +71,43 @@
   // Uploaded images are served only through /media/<id>.
   "r2_buckets": [
     { "binding": "MEDIA", "bucket_name": "ampedup-music-media-dev" }
-  ]
+  ],
+
+  // AMPED-CF-00A prepares the shape; AMPED-CF-01 fills in the real ids.
+  //
+  // THIS BLOCK ONLY TAKES EFFECT IF THE BUILD IS TOLD ABOUT IT.
+  // `astro build` emits the Wrangler config that is actually deployed, and it
+  // resolves environments from `CLOUDFLARE_ENV`, not from the `--env` flag
+  // passed later to `wrangler deploy`. Verified by dry run: building without
+  // it and deploying with `--env staging` silently produced
+  // `AMPED_ENV ("development")` and the default bindings - no error, just the
+  // wrong environment. Both halves are required:
+  //
+  //   CLOUDFLARE_ENV=staging npm run build
+  //   npx wrangler deploy --env staging
+  //
+  // CRON IS DISABLED EXPLICITLY, NOT BY OMISSION. Leaving `triggers` out was
+  // tried first and the top-level five-minute cron came through into the
+  // staging config anyway. An empty array is what actually stops it. The
+  // intent: a fresh deployment must not start calling a payment provider on a
+  // timer before anyone has confirmed its configuration. Replace with
+  // `["*/5 * * * *"]` once staging has been smoke-tested.
+  "env": {
+    "staging": {
+      "name": "ampedup-staging",
+      "vars": {
+        "AMPED_ENV": "staging"
+      },
+      "triggers": {
+        "crons": []
+      }
+      // CF-01 adds, with real ids created by the operator:
+      //   "d1_databases": [{ "binding": "DB", "database_name": "ampedup-staging", "database_id": "..." }]
+      //   "r2_buckets":   [{ "binding": "MEDIA", "bucket_name": "ampedup-music-media-staging" }]
+      // Secrets (SUMUP_API_KEY, SUMUP_MERCHANT_CODE) are set with
+      // `wrangler secret put --env staging` and never appear in this file.
+    }
+  }
 
   // --- Reserved for later slices; DO NOT enable early -----------------------
   // AMPED-06B: "kv_namespaces": [{ "binding": "RESERVATIONS", "id": "<created-in-slice>" }],
