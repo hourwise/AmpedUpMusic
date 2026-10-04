@@ -80,6 +80,57 @@ export interface ConfirmedPayment {
   paidAt?: string;
 }
 
+/**
+ * A payment the server has ALREADY verified against the provider (AMPED-07C1).
+ *
+ * Constructing one of these is a claim that every correlation check has
+ * passed: the provider was asked over an authenticated channel, it said PAID,
+ * and the checkout it described matches this local order's reference, total,
+ * currency and merchant. Nothing in this type comes from a webhook payload
+ * except indirectly - the payload supplies only the checkout id that triggered
+ * the lookup, and carries no payment authority of its own.
+ *
+ * It deliberately holds no provider response, no customer data and no
+ * credentials: it is the small, already-trusted residue of verification.
+ */
+export interface VerifiedPayment {
+  /** The local order, established by correlation - never by the payload. */
+  orderId: string;
+  /** The provider checkout id, already matched against payment_reference. */
+  checkoutId: string;
+  /** Which provider observed the payment. Scopes the observation record. */
+  provider: string;
+  /**
+   * The provider's successful TRANSACTION id - not the checkout id.
+   *
+   * This is the observation identity. One checkout can be attempted many
+   * times and can move FAILED -> PAID, so deduplicating on a checkout id
+   * would let an early failure permanently suppress the later real payment.
+   */
+  transactionId: string;
+  /** Authoritative paid timestamp, from the provider's successful transaction. */
+  paidAt: string;
+}
+
+/**
+ * What `applyVerifiedPayment` did. Business outcomes are returned, not thrown:
+ * a webhook handler has to tell "we paid it" from "it was already paid" from
+ * "the hold had gone" without catching exceptions to do routing.
+ */
+export type ApplyPaymentResult =
+  | { outcome: 'applied'; orderId: string; paidAt: string }
+  | { outcome: 'already-paid'; orderId: string; paidAt?: string }
+  | { outcome: 'not-applicable'; orderId: string; status: OrderStatus };
+
+/** The minimum local truth needed to correlate a provider checkout. */
+export interface PaymentCorrelationSnapshot {
+  orderId: string;
+  reference: string;
+  status: OrderStatus;
+  totalInPence: number;
+  paymentReference: string;
+}
+
 export interface OrderMutationService {
   createOrder(input: CheckoutInput): Promise<CreatedOrder>;
   /**
@@ -95,12 +146,36 @@ export interface OrderMutationService {
     provider: PaymentProvider,
     returnUrl: string,
   ): Promise<BegunPayment>;
-  /** The ONLY path into `paid`. */
+  /**
+   * Provider-authoritative confirmation for the mock-era checkout route.
+   *
+   * Retrieves the provider state itself and then delegates the actual
+   * transition to `applyVerifiedPayment`. It is NOT a second writer to `paid`.
+   */
   confirmPayment(
     orderId: string,
     checkoutId: string,
     provider: PaymentProvider,
   ): Promise<ConfirmedPayment>;
+  /**
+   * THE single local primitive that moves an order to `paid` (AMPED-07C1).
+   *
+   * Performs no network I/O whatsoever - verification happened before it was
+   * called. AMPED-07C's webhook and AMPED-07D's scheduled reconciliation both
+   * call exactly this, so there is one writer to `paid` and one place where
+   * the atomicity, the audit and the observation record are decided.
+   */
+  applyVerifiedPayment(verified: VerifiedPayment): Promise<ApplyPaymentResult>;
+  /**
+   * Resolve a provider checkout id to the local order holding it.
+   *
+   * Backed by the 0012 partial unique index, so it cannot return two orders
+   * for one checkout id - which would mean crediting someone else's payment.
+   */
+  findOrderByPaymentReference(
+    provider: string,
+    paymentReference: string,
+  ): Promise<PaymentCorrelationSnapshot | null>;
   cancelOrder(orderId: string): Promise<void>;
   expireOrder(orderId: string): Promise<void>;
   /**
@@ -350,48 +425,156 @@ class D1OrderMutations implements OrderMutationService {
     ) {
       throw new ConflictError('This reservation has expired. Start checkout again.');
     }
-    const reservationFloor = this.now().toISOString();
 
     const result = await provider.confirm(checkoutId);
 
-    if (result.status === 'pending') {
-      return { orderId, status: 'awaiting_payment' };
+    // AMPED-07C1: a provider FAILURE no longer expires the order.
+    //
+    // It used to map `failed` -> local `expired`, which released the stock
+    // immediately. That is wrong against a hosted checkout: a declined card
+    // can be retried on the provider's own page, so a FAILED observation
+    // means "this attempt did not work", not "this customer has gone". Acting
+    // on it would sell the tickets out from under someone who is still paying
+    // and may yet succeed. Expiry belongs solely to the time-based
+    // reservation sweep (AMPED-06B), which is the one thing that actually
+    // knows the customer has run out of time.
+    if (result.status !== 'paid') {
+      return { orderId, status: order.status };
     }
 
-    if (result.status === 'failed') {
-      // Documented graph: awaiting_payment --expired/failed--> expired.
-      const at = this.stamp();
-      await this.db.batch([
-        this.db
-          .prepare(
-            "update orders set status = 'expired', updated_at = ?1 where id = ?2 and status = 'awaiting_payment'",
-          )
-          .bind(at, orderId),
-        this.audit('order.expired', orderId, `Payment failed for ${order.reference}`, at),
-      ]);
-      return { orderId, status: 'expired' };
+    // The generic PaymentProvider contract exposes no transaction identity,
+    // so the checkout id stands in as the observation key for this path. The
+    // SumUp webhook path has a real transaction id and uses it.
+    const applied = await this.applyVerifiedPayment({
+      orderId,
+      checkoutId,
+      provider: provider.name,
+      transactionId: checkoutId,
+      paidAt: result.paidAt ?? this.now().toISOString(),
+    });
+
+    if (applied.outcome === 'not-applicable') {
+      throw new ConflictError('This order changed while payment was confirming.');
+    }
+    return applied.paidAt
+      ? { orderId, status: 'paid', paidAt: applied.paidAt }
+      : { orderId, status: 'paid' };
+  }
+
+  async applyVerifiedPayment(verified: VerifiedPayment): Promise<ApplyPaymentResult> {
+    const order = await this.loadOrder(verified.orderId);
+
+    if (order.status === 'paid') {
+      const paidAt = await this.paidAtFor(verified.orderId);
+      return paidAt
+        ? { outcome: 'already-paid', orderId: verified.orderId, paidAt }
+        : { outcome: 'already-paid', orderId: verified.orderId };
+    }
+    if (order.status !== 'awaiting_payment') {
+      return { outcome: 'not-applicable', orderId: verified.orderId, status: order.status };
     }
 
-    const paidAt = result.paidAt ?? this.now().toISOString();
     const at = this.stamp();
-    // The unexpired-hold predicate is repeated in the UPDATE itself, so a
-    // sweep that wins the race can never be undone by a stale confirmation.
+    const reservationFloor = this.now().toISOString();
+    const observationKey = `${verified.provider}_txn:${verified.transactionId}`;
+
+    // ONE batch, three statements, every one of them conditional.
+    //
+    //  1. The transition. The predicate IS the correctness gate: only an
+    //     unexpired awaiting_payment row can become paid, so of N concurrent
+    //     deliveries exactly one sees changes === 1 and the sweep can never
+    //     be undone by a late payment.
+    //
+    //  2. The audit. Previously this was an UNCONDITIONAL insert beside a
+    //     conditional update, so concurrent duplicates produced one
+    //     transition and several `order.paid` rows. It is now guarded on the
+    //     absence of such a row. The guard is on existence rather than on the
+    //     values this batch wrote, because `paid_at` comes from the provider
+    //     and is IDENTICAL across duplicate deliveries - a value-based guard
+    //     would match for every loser too.
+    //
+    //  3. The observation. Keyed on the provider's transaction id, so a
+    //     retry of the same payment is ignored while a genuinely later
+    //     payment on the same checkout still records. ON CONFLICT DO NOTHING
+    //     keeps a duplicate delivery harmless instead of raising.
+    //
+    // D1 serialises write transactions, so the losers' guards observe the
+    // winner's committed rows rather than racing them.
     const results = await this.db.batch([
       this.db
         .prepare(
-          "update orders set status = 'paid', paid_at = ?1, updated_at = ?2 where id = ?3 and status = 'awaiting_payment' and reservation_expires_at > ?4",
+          "update orders set status = 'paid', paid_at = ?1, updated_at = ?2 " +
+            "where id = ?3 and status = 'awaiting_payment' and reservation_expires_at > ?4",
         )
-        .bind(paidAt, at, orderId, reservationFloor),
-      this.audit('order.paid', orderId, `Paid ${order.reference}`, at),
+        .bind(verified.paidAt, at, verified.orderId, reservationFloor),
+      this.db
+        .prepare(
+          'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
+            "select ?1, ?2, 'order.paid', 'order', ?3, ?4, ?5 " +
+            'where exists (select 1 from orders where id = ?3 and status = ?6 and updated_at = ?5) ' +
+            "and not exists (select 1 from audit_log where entity_type = 'order' and entity_id = ?3 and action = 'order.paid')",
+        )
+        .bind(
+          this.newId('aud'),
+          `system:${verified.provider}-payment`,
+          verified.orderId,
+          `Paid ${order.reference}`,
+          at,
+          'paid',
+        ),
+      this.db
+        .prepare(
+          'insert into processed_webhooks (id, provider, provider_event_id, received_at, processed_at) ' +
+            'values (?1, ?2, ?3, ?4, ?4) on conflict (provider, provider_event_id) do nothing',
+        )
+        .bind(this.newId('pwh'), verified.provider, observationKey, at),
     ]);
 
     if (((results[0]?.meta?.changes ?? 0) as number) === 0) {
-      const current = await this.loadOrder(orderId);
-      if (current.status === 'paid') return { orderId, status: 'paid' };
-      throw new ConflictError('This order changed while payment was confirming.');
+      const current = await this.loadOrder(verified.orderId);
+      if (current.status === 'paid') {
+        const paidAt = await this.paidAtFor(verified.orderId);
+        return paidAt
+          ? { outcome: 'already-paid', orderId: verified.orderId, paidAt }
+          : { outcome: 'already-paid', orderId: verified.orderId };
+      }
+      // The hold lapsed between the read and the write: the sweep won. This
+      // is a real money discrepancy for AMPED-07D to surface, not something
+      // to resolve here by resurrecting released stock.
+      return { outcome: 'not-applicable', orderId: verified.orderId, status: current.status };
     }
 
-    return { orderId, status: 'paid', paidAt };
+    return { outcome: 'applied', orderId: verified.orderId, paidAt: verified.paidAt };
+  }
+
+  async findOrderByPaymentReference(
+    provider: string,
+    paymentReference: string,
+  ): Promise<PaymentCorrelationSnapshot | null> {
+    // The 0012 partial unique index makes this at most one row and keeps the
+    // scan off a public, unauthenticated endpoint. Provider is matched too, so
+    // a mock reference can never answer for a SumUp checkout.
+    const row = await this.db
+      .prepare(
+        'select id, reference, status, total_in_pence, payment_reference from orders ' +
+          'where payment_reference = ?1 and payment_provider = ?2',
+      )
+      .bind(paymentReference, provider)
+      .first<{
+        id: string;
+        reference: string;
+        status: OrderStatus;
+        total_in_pence: number;
+        payment_reference: string;
+      }>();
+    if (!row) return null;
+    return {
+      orderId: row.id,
+      reference: row.reference,
+      status: row.status,
+      totalInPence: row.total_in_pence,
+      paymentReference: row.payment_reference,
+    };
   }
 
   async cancelOrder(orderId: string): Promise<void> {
@@ -535,6 +718,15 @@ class D1OrderMutations implements OrderMutationService {
         throw new ConflictError(`Only ${left} left for ${line.name}.`);
       }
     }
+  }
+
+  /** The persisted paid_at, for reporting an already-paid order faithfully. */
+  private async paidAtFor(orderId: string): Promise<string | undefined> {
+    const row = await this.db
+      .prepare('select paid_at from orders where id = ?1')
+      .bind(orderId)
+      .first<{ paid_at: string | null }>();
+    return row?.paid_at ?? undefined;
   }
 
   private async loadOrder(orderId: string): Promise<OrderRow> {

@@ -58,7 +58,12 @@ import {
   type SocialMutationService,
 } from './d1/social.ts';
 import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
+import { createSumUpClient } from './payments/sumup/client.ts';
 import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
+import {
+  createSumUpPaymentVerifier,
+  type SumUpPaymentVerifier,
+} from './payments/sumup/verification.ts';
 import { PaymentConfigurationError } from './payments/sumup/types.ts';
 import type { PaymentProvider } from './contracts.ts';
 import { createD1VenueMutations, createD1VenueService, type VenueMutationService } from './d1/venues.ts';
@@ -114,18 +119,26 @@ async function boundDatabase(): Promise<D1Database | undefined> {
  * checkout seam turns into a controlled refusal rather than a mock fallback.
  */
 async function boundSumUpConfig(): Promise<
-  { apiKey: string; merchantCode: string } | undefined
+  { apiKey: string; merchantCode: string; webhookUrl?: string } | undefined
 > {
   try {
     const runtime = (await import('cloudflare:workers')) as unknown as {
-      env?: { SUMUP_API_KEY?: string; SUMUP_MERCHANT_CODE?: string };
+      env?: {
+        SUMUP_API_KEY?: string;
+        SUMUP_MERCHANT_CODE?: string;
+        SUMUP_WEBHOOK_URL?: string;
+      };
     };
     const apiKey = runtime.env?.SUMUP_API_KEY;
     const merchantCode = runtime.env?.SUMUP_MERCHANT_CODE;
     // Both or neither: a half-configured integration is a misconfiguration,
     // not a degraded mode worth serving a customer.
     if (!apiKey || !merchantCode) return undefined;
-    return { apiKey, merchantCode };
+    // The webhook URL is OPTIONAL and is not a credential. Unset means
+    // `return_url` is omitted from checkout creation rather than defaulted to
+    // something invented - a wrong callback is worse than no callback.
+    const webhookUrl = runtime.env?.SUMUP_WEBHOOK_URL;
+    return webhookUrl ? { apiKey, merchantCode, webhookUrl } : { apiKey, merchantCode };
   } catch {
     // Node/Vitest, or a Worker without the secrets bound.
     return undefined;
@@ -158,6 +171,7 @@ let cachedMediaMutations: MediaMutationService | null = null;
 let cachedSocial: (SocialMutationService & SocialService) | null = null;
 let cachedOrderMutations: OrderMutationService | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
+let cachedVerifier: SumUpPaymentVerifier | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -308,6 +322,32 @@ export function getCheckout(): {
   if (!sumUpConfig) throw new PaymentConfigurationError();
   cachedPaymentProvider ??= createSumUpPaymentProvider(sumUpConfig);
   return { orders, provider: cachedPaymentProvider };
+}
+
+/**
+ * The AMPED-07C1 webhook verification seam.
+ *
+ * Returns the authenticated SumUp verifier plus the order mutations, so the
+ * public webhook route never touches a credential, a client or raw SQL. It
+ * deliberately does NOT go through `PaymentProvider`: correlation needs the
+ * checkout's reference, amount, currency and merchant code, and the accepted
+ * contract's `confirm()` exposes only a status. Widening that contract to
+ * suit one provider would have been the worse trade.
+ *
+ * Fails closed exactly like `getCheckout()`: no credentials, no verification.
+ */
+export function getSumUpVerification(): {
+  orders: OrderMutationService;
+  verifier: SumUpPaymentVerifier;
+} {
+  const orders = orderMutations();
+  if (!sumUpConfig) throw new PaymentConfigurationError();
+  cachedVerifier ??= createSumUpPaymentVerifier({
+    client: createSumUpClient(sumUpConfig),
+    merchantCode: sumUpConfig.merchantCode,
+    orders,
+  });
+  return { orders, verifier: cachedVerifier };
 }
 
 /**

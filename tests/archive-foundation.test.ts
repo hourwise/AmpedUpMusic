@@ -66,15 +66,16 @@ describe('AMPED-04C0 artist and venue archival state', () => {
       '0009',
       '0010',
       '0011',
+      '0012',
     ]);
-    expect(applied[applied.length - 1]?.name).toBe('0011_inventory_capacity_guard.sql');
+    expect(applied[applied.length - 1]?.name).toBe('0012_payment_reference_identity.sql');
   });
 
   it('is a no-op when run again', async () => {
     const before = await readAppliedMigrations(db);
     const second = await migrate(db);
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(11);
+    expect(second.alreadyApplied).toHaveLength(12);
     expect(await readAppliedMigrations(db)).toEqual(before);
   });
 

@@ -130,15 +130,16 @@ ${COMPOUND_STATEMENT_END}`;
     ).toThrow(/empty/);
   });
 
-  it('leaves migrations 0001-0010 statement counts unchanged', () => {
+  it('leaves the accepted migrations statement counts unchanged', () => {
     const files = readdirSync(join(root, 'migrations')).filter((name) => name.endsWith('.sql')).sort();
-    expect(files).toHaveLength(11);
+    expect(files).toHaveLength(12);
     const counts = files.map((name) =>
       splitStatements(readFileSync(join(root, 'migrations', name), 'utf8')).length,
     );
-    // The counts the accepted runner reports for 0001..0011 (0011 is the
-    // compound-marked capacity trigger, one statement).
-    expect(counts).toEqual([4, 5, 7, 16, 4, 4, 2, 1, 1, 1, 1]);
+    // The counts the accepted runner reports for 0001..0012 (0011 is the
+    // compound-marked capacity trigger and 0012 the payment-reference unique
+    // index, one statement each).
+    expect(counts).toEqual([4, 5, 7, 16, 4, 4, 2, 1, 1, 1, 1, 1]);
   });
 });
 

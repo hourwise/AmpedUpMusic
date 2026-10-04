@@ -73,6 +73,25 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * A create-checkout response carrying a UNIQUE checkout id.
+ *
+ * Migration 0012 made `orders.payment_reference` uniquely indexed, which is
+ * the whole point of it: one checkout id must identify one order, or a
+ * webhook could credit the wrong customer. A shared fixture id would
+ * therefore make these tests collide with each other instead of testing
+ * anything, so each served response gets its own id - as real SumUp does.
+ */
+let checkoutSequence = 0;
+function pendingCheckout(overrides: Record<string, unknown> = {}) {
+  checkoutSequence += 1;
+  return {
+    ...fixtures.CREATE_PENDING,
+    id: `${fixtures.FAKE_CHECKOUT_ID}-${checkoutSequence}`,
+    ...overrides,
+  };
+}
+
 function sumUpProvider(steps: Array<() => Response | Promise<Response>>) {
   const transport = fakeTransport(steps);
   const provider = createSumUpPaymentProvider({
@@ -155,7 +174,7 @@ describe('AMPED-07B hosted checkout', () => {
 
   describe('expiry alignment', () => {
     it('sends valid_until on the create request', async () => {
-      const { provider, captured } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider, captured } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       await provider.createCheckout({
         orderId: 'ord_x',
         reference: 'AMP-26-00001',
@@ -172,7 +191,7 @@ describe('AMPED-07B hosted checkout', () => {
     });
 
     it("uses SumUp's returned valid_until verbatim as the local reservation expiry", async () => {
-      const { provider } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       const begun = await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -187,7 +206,7 @@ describe('AMPED-07B hosted checkout', () => {
       // the local hold must follow it rather than our request.
       const DIFFERENT = '2026-09-23T20:17:30.000Z';
       const { provider, captured } = sumUpProvider([
-        () => jsonResponse({ ...fixtures.CREATE_PENDING, valid_until: DIFFERENT }),
+        () => jsonResponse(pendingCheckout({ valid_until: DIFFERENT })),
       ]);
       const service = mutations();
       const created = await service.createOrder(checkout());
@@ -201,7 +220,7 @@ describe('AMPED-07B hosted checkout', () => {
 
     it('falls back to the exact pre-request value when SumUp omits valid_until', async () => {
       const { provider, captured } = sumUpProvider([
-        () => jsonResponse(fixtures.CREATE_PENDING_NO_VALID_UNTIL),
+        () => jsonResponse(pendingCheckout({ valid_until: undefined })),
       ]);
       const service = mutations();
       const created = await service.createOrder(checkout());
@@ -221,7 +240,7 @@ describe('AMPED-07B hosted checkout', () => {
         reads += 1;
         return new Date(FIXED_NOW.getTime() + reads * 60_000);
       };
-      const transport = fakeTransport([() => jsonResponse(fixtures.CREATE_PENDING_NO_VALID_UNTIL)]);
+      const transport = fakeTransport([() => jsonResponse(pendingCheckout({ valid_until: undefined }))]);
       const provider = createSumUpPaymentProvider({
         apiKey: fixtures.FAKE_API_KEY,
         merchantCode: fixtures.FAKE_MERCHANT_CODE,
@@ -308,7 +327,7 @@ describe('AMPED-07B hosted checkout', () => {
     });
 
     it('sends the server-recomputed total, not anything a client could set', async () => {
-      const { provider, captured } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider, captured } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -337,7 +356,7 @@ describe('AMPED-07B hosted checkout', () => {
         unitPrice: 1,
       } as unknown as CheckoutInput;
 
-      const { provider, captured } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider, captured } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(tampered);
       await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -387,7 +406,8 @@ describe('AMPED-07B hosted checkout', () => {
     });
 
     it('uses the local order reference as checkout_reference and stores the checkout id', async () => {
-      const { provider, captured } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const served = pendingCheckout();
+      const { provider, captured } = sumUpProvider([() => jsonResponse(served)]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       const begun = await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -398,8 +418,8 @@ describe('AMPED-07B hosted checkout', () => {
       expect(row?.payment_provider).toBe('sumup');
       // The accepted payment_reference column holds the provider id. No second
       // provider-id column was added.
-      expect(row?.payment_reference).toBe(fixtures.FAKE_CHECKOUT_ID);
-      expect(begun.checkoutId).toBe(fixtures.FAKE_CHECKOUT_ID);
+      expect(row?.payment_reference).toBe(served.id);
+      expect(begun.checkoutId).toBe(served.id);
     });
   });
 
@@ -407,7 +427,7 @@ describe('AMPED-07B hosted checkout', () => {
 
   describe('hosted checkout result', () => {
     it('returns the hosted URL only after the reservation is actually held', async () => {
-      const { provider } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       const begun = await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -418,7 +438,7 @@ describe('AMPED-07B hosted checkout', () => {
     });
 
     it('sends the absolute server-derived return URL, never a relative path', async () => {
-      const { provider, captured } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider, captured } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       await service.beginPayment(created.orderId, provider, RETURN_URL);
@@ -429,7 +449,7 @@ describe('AMPED-07B hosted checkout', () => {
     });
 
     it('refuses a relative return URL before contacting the provider at all', async () => {
-      const { provider, calls } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider, calls } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
 
@@ -445,7 +465,7 @@ describe('AMPED-07B hosted checkout', () => {
     it('takes the redirect target only from the provider result', async () => {
       // Nothing the caller passes in can become the redirect: the only input
       // is returnUrl, and the output URL comes from SumUp's response body.
-      const { provider } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       const begun = await service.beginPayment(
@@ -595,7 +615,7 @@ describe('AMPED-07B hosted checkout', () => {
 
   describe('payment authority', () => {
     it('leaves the order awaiting_payment after the hosted checkout is created', async () => {
-      const { provider } = sumUpProvider([() => jsonResponse(fixtures.CREATE_PENDING)]);
+      const { provider } = sumUpProvider([() => jsonResponse(pendingCheckout())]);
       const service = mutations();
       const created = await service.createOrder(checkout());
       await service.beginPayment(created.orderId, provider, RETURN_URL);

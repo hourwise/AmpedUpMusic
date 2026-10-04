@@ -46,7 +46,19 @@ interface Env {
   // AMPED-07 - SumUp Hosted Checkout
   SUMUP_API_KEY?: string;
   SUMUP_MERCHANT_CODE?: string;
-  SUMUP_WEBHOOK_SECRET?: string;
+  // AMPED-07C1 - public HTTPS callback sent to SumUp as `return_url`.
+  // NOT a secret: it is a URL, and it is listed here only because the service
+  // locator reads it alongside the credentials. Unset means `return_url` is
+  // omitted from checkout creation entirely.
+  //
+  // There is deliberately no SUMUP_WEBHOOK_SECRET. The original build plan
+  // assumed a signed webhook; SumUp documents no signature, HMAC, shared
+  // secret, timestamp or delivery id for Online Payments notifications, and
+  // instructs integrators to verify by retrieving the checkout over the
+  // authenticated API instead. Keeping an unused secret here would have
+  // implied a verification mechanism this application does not - and cannot -
+  // perform.
+  SUMUP_WEBHOOK_URL?: string;
   // AMPED-08C - transactional email
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;

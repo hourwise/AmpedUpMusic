@@ -163,7 +163,17 @@ export interface PaymentProvider {
    * This - not the browser return URL - is what may move an order to `paid`.
    */
   confirm(checkoutId: string): Promise<{ status: 'paid' | 'pending' | 'failed'; paidAt?: string }>;
-  /** Verifies a webhook signature. Returns the checkout id, or null if invalid. */
+  /**
+   * Parses a provider notification and returns the checkout id it names.
+   *
+   * NOT a signature check, despite the name: SumUp documents no signature,
+   * HMAC, shared secret or timestamp for Online Payments notifications, so
+   * there is nothing to verify cryptographically and this application does
+   * not pretend otherwise. A notification carries NO payment authority. The
+   * returned id is only a lookup key; authenticity is established by
+   * retrieving the checkout over the authenticated API and correlating it
+   * against the local order (AMPED-07C1).
+   */
   verifyWebhook(request: Request): Promise<{ checkoutId: string } | null>;
 }
 

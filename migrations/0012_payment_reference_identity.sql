@@ -1,0 +1,41 @@
+-- 0012_payment_reference_identity.sql
+--
+-- AMPED-07C1 — makes the provider checkout id a usable, trustworthy key.
+--
+-- WHY THIS EXISTS
+-- The webhook handler is handed a checkout id by an UNAUTHENTICATED caller and
+-- must find the local order it belongs to. That lookup had neither an index
+-- nor a uniqueness guarantee: `orders.payment_reference` was a plain nullable
+-- TEXT column. Two problems followed from that.
+--
+--   1. The lookup was a full table scan on a public, unauthenticated endpoint.
+--   2. Nothing stopped two orders sharing one checkout id. A lookup that can
+--      return two rows is a lookup that can credit the wrong customer's order
+--      for somebody else's payment. This is money, so the database should
+--      refuse the situation rather than the application hoping it never
+--      arises.
+--
+-- WHY PARTIAL, AND WHY UNIQUE
+-- Most orders legitimately have no payment reference: guest-list comps, cash
+-- sales, and every order that never reached a provider. SQLite's UNIQUE would
+-- in fact tolerate many NULLs, but the partial predicate states the intent
+-- explicitly and keeps the index as small as the rows that actually need it.
+--
+-- A single unique index serves BOTH jobs - it is the lookup index as well as
+-- the constraint - so no second ordinary index is created.
+--
+-- The uniqueness invariant was proven against existing data before this
+-- migration was written: 748 orders, 740 non-null references (738 seeded mock
+-- references plus the AMPED-07B sandbox orders), zero duplicates.
+--
+-- WHAT THIS DOES NOT DO
+-- No column is added, altered or dropped. No row is written. No constraint on
+-- any other table changes. `processed_webhooks` is deliberately untouched:
+-- AMPED-07C1 keys its observations on the SumUp transaction id, which the
+-- existing free-text `provider_event_id` column already holds.
+--
+-- Forward-only: migrations 0001-0011 are accepted history and are untouched.
+
+CREATE UNIQUE INDEX orders_payment_reference_unique
+  ON orders (payment_reference)
+  WHERE payment_reference IS NOT NULL;

@@ -12,6 +12,17 @@
  *  - GET  /v0.1/checkouts/{checkout_id}
  *  - Authorization: Bearer <API key>
  *  - status: PENDING | PAID | FAILED | EXPIRED
+ *
+ * Webhook contract (reviewed 2026-10-04):
+ *  - subscribe by sending `return_url` on checkout creation; that field is the
+ *    BACKEND callback, while `redirect_url` is where the shopper's browser is
+ *    sent. They are different things and must not be given the same value.
+ *  - the notification body is `{ event_type, id }` and nothing else.
+ *  - SumUp documents NO signature, HMAC, shared secret, timestamp or delivery
+ *    id. Authenticity comes from retrieving the checkout over the
+ *    authenticated API, which is what AMPED-07C1's verifier does.
+ *  - retries are at 1 min, 5 min, 20 min and 2 hours for any non-2xx reply.
+ *  - unknown future event types should be ignored silently.
  */
 
 export const SUMUP_API_BASE = 'https://api.sumup.com';
@@ -38,6 +49,12 @@ export interface SumUpCheckoutPayload {
   hosted_checkout_url?: unknown;
   valid_until?: unknown;
   transactions?: unknown;
+  // AMPED-07C1 correlation fields. Still `unknown`: a webhook-triggered
+  // retrieval must prove each one rather than let a type assert it.
+  checkout_reference?: unknown;
+  amount?: unknown;
+  currency?: unknown;
+  merchant_code?: unknown;
 }
 
 export type SumUpFailureKind = 'transport' | 'timeout' | 'http' | 'protocol';

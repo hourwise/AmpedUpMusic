@@ -43,6 +43,15 @@ export interface SumUpProviderOptions extends SumUpTransportOptions {
   apiKey: string;
   merchantCode: string;
   now?: () => Date;
+  /**
+   * Public HTTPS webhook callback, sent as SumUp's `return_url` (AMPED-07C1).
+   *
+   * Configuration, not a per-request value: it is a property of this
+   * deployment, never of a customer's checkout, and the generic
+   * `PaymentProvider` contract is deliberately left unwidened because of it.
+   * Unset means the field is omitted rather than guessed.
+   */
+  webhookUrl?: string;
 }
 
 function requiredString(value: unknown): string | null {
@@ -95,10 +104,12 @@ class SumUpPaymentProvider implements PaymentProvider {
   readonly name = 'sumup' as const;
   private readonly client: SumUpClient;
   private readonly now: () => Date;
+  private readonly webhookUrl: string | undefined;
 
   constructor(options: SumUpProviderOptions) {
     this.client = createSumUpClient(options);
     this.now = options.now ?? (() => new Date());
+    this.webhookUrl = options.webhookUrl;
   }
 
   async createCheckout(input: {
@@ -125,6 +136,7 @@ class SumUpPaymentProvider implements PaymentProvider {
       customerEmail: input.customerEmail,
       returnUrl: input.returnUrl,
       validUntil: requestedExpiresAt,
+      ...(this.webhookUrl === undefined ? {} : { webhookUrl: this.webhookUrl }),
     });
 
     const checkoutId = requiredString(payload.id);

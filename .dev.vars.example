@@ -10,9 +10,18 @@
 AMPED_ENV=development
 
 # AMPED-07A/B — SumUp Hosted Checkout (server-side only, never exposed to client)
+# Use a SANDBOX merchant's API key. Sandbox is a separate merchant account with
+# its own merchant code; a live key will reject SumUp's test cards.
 SUMUP_API_KEY=replace-with-development-sumup-api-key
 SUMUP_MERCHANT_CODE=replace-with-development-merchant-code
-SUMUP_WEBHOOK_SECRET=
+
+# AMPED-07C1 — public HTTPS callback SumUp posts checkout status changes to.
+# Sent as the API's `return_url` (the BACKEND callback); the customer's browser
+# destination is `redirect_url` and is derived per-request from the server.
+# NOT a secret. Leave BLANK for local development: SumUp cannot reach
+# 127.0.0.1, and an unset value omits `return_url` rather than registering a
+# callback that cannot work.
+SUMUP_WEBHOOK_URL=
 
 # AMPED-08C — transactional email provider (behind TicketEmailProvider interface)
 EMAIL_PROVIDER=console

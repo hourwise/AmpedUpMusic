@@ -575,6 +575,15 @@ describe('04C API route protection', () => {
         expect(isProtectedPath(route), `${file} -> ${route}`).toBe(false);
         continue;
       }
+      if (route.startsWith('/api/webhooks/')) {
+        // AMPED-07C1. SumUp's servers call this; an Access challenge would
+        // make the callback undeliverable, so it MUST stay unprotected. Its
+        // safety comes from carrying no authority at all: the payload is a
+        // hint, and every payment decision is made from an authenticated
+        // server-to-server retrieval correlated against the local order.
+        expect(isProtectedPath(route), `${file} -> ${route}`).toBe(false);
+        continue;
+      }
       expect(route.startsWith('/api/admin/'), `${file} -> ${route}`).toBe(true);
       expect(isProtectedPath(route), `${file} -> ${route}`).toBe(true);
     }

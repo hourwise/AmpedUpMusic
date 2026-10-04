@@ -724,28 +724,85 @@ frozen.
 **Preconditions** — AMPED-07B merged.
 
 **Allowed scope** — `src/pages/api/webhooks/sumup.ts` (new), `src/services/payments/sumup/**`,
-`src/services/orders/**` (confirmation path only), `migrations/**` (`processed_webhooks` only), `tests/**`.
+`src/services/orders/**` (confirmation path only), `migrations/**` (`orders` indexing and
+`processed_webhooks` only), `tests/**`.
 
 **Forbidden scope** — UI, email, tickets, door, checkout creation.
 
+> **REVISED 2026-10-04 (AMPED-07C0 preflight, implemented in AMPED-07C1).**
+> This slice originally specified a signed-webhook model. Current SumUp documentation
+> describes no such mechanism, so four requirements below were impossible as written and
+> have been replaced rather than quietly reinterpreted. The superseded wording is recorded
+> here so the change is auditable:
+>
+> | Original requirement | Status | Replacement |
+> |---|---|---|
+> | "Verify the webhook's authenticity per SumUp's documentation before doing anything else" | REINTERPRET | SumUp's documented verification *is* the authenticated API retrieval |
+> | Test: "invalid signature rejected" | IMPOSSIBLE | Replaced by the correlation-mismatch tests |
+> | Test: "valid signature but API says unpaid → order not paid" | REINTERPRET | "Signature" dropped; the rest retained |
+> | "record the provider event id" | SUPERSEDED | SumUp sends no event id; the successful **transaction** id is the observation identity |
+> | Test: "replayed old webhook rejected" | REINTERPRET | No timestamp exists to age a delivery; replay is proven harmless instead of rejected |
+>
+> Sources, reviewed 2026-10-04: `developer.sumup.com/online-payments/webhooks`,
+> `developer.sumup.com/api/checkouts/create`, `developer.sumup.com/api/checkouts/get`.
+
+**Security model** — The notification is an unauthenticated hint containing a checkout ID. It has
+zero payment authority. Authenticity of the claimed payment state is established by an
+authenticated server-to-server SumUp API retrieval plus correlation against the local order.
+There is no signature, HMAC, shared secret, timestamp or delivery ID to verify, and the
+application must not pretend otherwise.
+
 **Implementation requirements**
-1. Verify the webhook's authenticity per SumUp's documentation before doing anything else.
-2. **Never trust the webhook payload as evidence of payment.** On receipt, take the checkout id and
-   query SumUp's API for the authoritative state (R2). This is SumUp's own documented instruction.
-3. Idempotency (R3): record the provider event id; a repeat is acknowledged and ignored. Concurrent
-   duplicates must not both proceed — the idempotency check and the state change are one atomic unit.
-4. Unknown or future event types are acknowledged with 200 and ignored, never 500.
-5. A webhook for an unknown order is logged and acknowledged, never retried forever.
+1. Take the checkout id from the notification and nothing else. Retrieve the authoritative
+   checkout over the authenticated API (R2). This is SumUp's own documented instruction.
+2. **Never trust the webhook payload as evidence of payment.** Before any transition, correlate
+   the retrieved checkout against authoritative local data: checkout id matches the stored
+   `payment_reference`; status is `PAID`; `checkout_reference` equals the local order reference;
+   amount equals `total_in_pence` compared as exact integer pence, never floating point;
+   currency is `GBP`; `merchant_code` is ours; a SUCCESSFUL transaction exists to supply the
+   paid timestamp and the observation identity. Any mismatch is a security event and never pays.
+3. Idempotency (R3): correctness lives in ONE conditional D1 update — only an unexpired
+   `awaiting_payment` order may become `paid`. `processed_webhooks` is a verified-observation
+   record, not the correctness gate, and is keyed `sumup_txn:<successful transaction id>`.
+   Keying on the checkout id is forbidden: one checkout can be attempted repeatedly and can move
+   FAILED → PAID, so a checkout-level key would let an early failure suppress the real payment.
+4. The `order.paid` audit insert must be guarded, not unconditional. Concurrent duplicates must
+   produce exactly one transition **and** exactly one audit row.
+5. Unknown or future event types are acknowledged with an empty 2xx and ignored, never 500.
+6. Malformed JSON, missing/non-string ids and unknown local checkouts are acknowledged with an
+   empty 2xx. SumUp retries any non-2xx at 1 min, 5 min, 20 min and 2 hours, so rejecting
+   unfixable input would only buy more copies of it.
+7. A provider retrieval failure, timeout or missing configuration returns a retryable non-2xx
+   (502) and changes nothing — the only case where being told again helps.
+8. Responses carry an empty body in every case, so the endpoint cannot be used to discover
+   whether a checkout id is known.
+9. Provider `FAILED`/`EXPIRED` must NOT expire the order or release stock. A declined attempt can
+   be retried on the hosted page; expiry belongs solely to the AMPED-06B reservation sweep.
+10. `return_url` is SumUp's BACKEND callback and `redirect_url` is the shopper's browser
+    destination. They must not be given the same value. The webhook URL is server configuration
+    (`SUMUP_WEBHOOK_URL`) and is omitted entirely when unset.
+11. One writer to `paid`: `retrieve + verify → VerifiedPayment → applyVerifiedPayment(...)`.
+    `applyVerifiedPayment` performs no network I/O and is the primitive AMPED-07D must reuse.
 
-**Tests required** — invalid signature rejected; valid signature but API says unpaid → order not paid;
-duplicate webhook → exactly one transition; **concurrent** duplicates → exactly one transition; unknown
-event type → 200; unknown order → 200 and logged; replayed old webhook rejected.
+**Tests required** — correlation mismatch (wrong reference / amount / currency / merchant /
+no successful transaction) never pays; PAID pays exactly once; PENDING, FAILED and EXPIRED change
+nothing; FAILED followed by PAID on the same checkout still pays; duplicate webhook → exactly one
+transition; **concurrent** duplicates (N=8, real ephemeral D1) → exactly one transition, one audit
+row and one observation; webhook racing the reservation sweep cannot both win; unknown event
+type → 2xx; unknown order → 2xx and logged; malformed JSON → 2xx; retrieval failure → 502;
+replay after paid is harmless; exact-pence conversion rejects over-precision.
 
-**Acceptance criteria** — the governing plan's requirement: *test payment → verified SumUp transaction →
-exactly one completed order.* `npm run verify` green.
+**Acceptance criteria** — the governing plan's requirement: *test payment → verified SumUp
+transaction → exactly one completed order.* `npm run verify` green.
 
-**Stop conditions** — If SumUp's current documentation contradicts this slice. Report the difference;
-do not improvise a verification scheme.
+**Real-webhook certification** — A SumUp-originated sandbox webhook is still REQUIRED and is
+explicitly DEFERRED to the first authorised staging deployment, after the Cloudflare Access
+exposure gate is proven. SumUp cannot reach `127.0.0.1`, and no tunnel is authorised. AMPED-07C1
+proves the endpoint → retrieval → verification → mutation chain with a synthetic local POST
+using the real documented notification shape; it does not claim real delivery has been certified.
+
+**Stop conditions** — If SumUp's current documentation contradicts this slice. Report the
+difference; do not improvise a verification scheme.
 
 ---
 

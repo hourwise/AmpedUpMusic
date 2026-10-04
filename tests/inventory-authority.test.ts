@@ -20,7 +20,10 @@ import { createMockPaymentProvider } from '../src/services/payments/mock.ts';
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const FIXED_NOW = new Date('2026-09-24T09:00:00.000Z');
-const OPERATOR_EMAIL = 'checkout';
+// AMPED-07C1: `order.paid` is written by the shared confirmation primitive,
+// so its actor names the verification path that caused it rather than the
+// generic 'checkout' used while the mock route was the only way in.
+const PAID_ACTOR = 'system:mock-payment';
 
 interface Probe {
   eventId: string;
@@ -326,19 +329,37 @@ describe('AMPED-06B0 commercial inventory authority', () => {
     }
   });
 
-  it('returns the stock when payment fails or the checkout expires', async () => {
+  it('keeps the hold when a payment attempt fails, and the sweep releases it', async () => {
     const probe = await makeProbe(50);
     try {
       const { service, created } = await checkout(probe, 2);
       const failing = createMockPaymentProvider({ outcome: 'failed' });
       const begun = await service.beginPayment(created.orderId, failing, 'https://amped.test/checkout/return');
       const result = await service.confirmPayment(created.orderId, begun.checkoutId, failing);
-      expect(result.status).toBe('expired');
 
-      const entry = await inventory().ticketTypeInventory(probe.typeId);
-      expect(entry?.sold).toBe(0);
-      expect(entry?.reserved).toBe(0);
-      expect(entry?.available).toBe(50);
+      // AMPED-07C1: a failed attempt is not an abandoned customer. The stock
+      // stays held so a retry on the provider's hosted page can still
+      // succeed; only elapsed time releases it.
+      expect(result.status).toBe('awaiting_payment');
+      const held = await inventory().ticketTypeInventory(probe.typeId);
+      expect(held?.sold).toBe(0);
+      expect(held?.reserved).toBe(2);
+      expect(held?.available).toBe(48);
+
+      // Time, and only time, gives the tickets back. The sweep is global, so
+      // this asserts THIS order's fate rather than a shared tally.
+      const afterWindow = new Date(Date.parse(begun.expiresAt) + 1000);
+      await service.expireDueReservations(afterWindow);
+      const sweptRow = await db
+        .prepare('select status from orders where id = ?')
+        .bind(created.orderId)
+        .first<{ status: string }>();
+      expect(sweptRow?.status).toBe('expired');
+
+      const released = await inventory().ticketTypeInventory(probe.typeId);
+      expect(released?.sold).toBe(0);
+      expect(released?.reserved).toBe(0);
+      expect(released?.available).toBe(50);
     } finally {
       await cleanup(probe);
     }
@@ -389,7 +410,7 @@ describe('AMPED-06B0 commercial inventory authority', () => {
       .prepare(
         "select count(*) as n from audit_log where action = 'order.paid' and actor_email = ?",
       )
-      .bind(OPERATOR_EMAIL)
+      .bind(PAID_ACTOR)
       .first<{ n: number }>();
     expect(rows?.n).toBeGreaterThan(0);
   });

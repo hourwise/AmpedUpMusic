@@ -316,7 +316,7 @@ describe('AMPED-06B ticket reservations', () => {
 
   // -- payment ---------------------------------------------------------------
 
-  it('moves reserved into sold with availability unchanged, and failure releases it', async () => {
+  it('moves reserved into sold, and a failed attempt KEEPS the hold', async () => {
     const probe = await makeProbe({ capacity: 50 });
     try {
       const { service, created, begun } = await createAndReserve(probe, 2);
@@ -338,13 +338,20 @@ describe('AMPED-06B ticket reservations', () => {
 
     const failing = await makeProbe({ capacity: 50 });
     try {
+      // AMPED-07C1 changed this deliberately. A provider FAILURE used to
+      // expire the order and release the stock immediately. Against a hosted
+      // checkout that is wrong: a declined card can be retried on the
+      // provider's own page, so "this attempt failed" is not "this customer
+      // has gone". Releasing here would resell tickets out from under
+      // somebody who is still paying and may yet succeed. The hold therefore
+      // stands until the AMPED-06B sweep decides their time is up.
       const { service, created, begun } = await createAndReserve(failing, 2);
       const result = await service.confirmPayment(created.orderId, begun.checkoutId, provider('failed'));
-      expect(result.status).toBe('expired');
+      expect(result.status).toBe('awaiting_payment');
       const entry = await inventory().ticketTypeInventory(failing.typeId);
       expect(entry?.sold).toBe(0);
-      expect(entry?.reserved).toBe(0);
-      expect(entry?.available).toBe(50);
+      expect(entry?.reserved).toBe(2);
+      expect(entry?.available).toBe(48);
     } finally {
       await cleanup(failing);
     }

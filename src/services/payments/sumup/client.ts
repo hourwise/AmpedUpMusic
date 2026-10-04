@@ -51,6 +51,14 @@ export interface CreateCheckoutRequest {
    * 30-minute clocks separated by network latency.
    */
   validUntil: string;
+  /**
+   * The BACKEND webhook callback, sent as `return_url` (AMPED-07C1).
+   *
+   * Omitted entirely when not configured. SumUp treats `return_url` as the
+   * notification subscription, so sending a wrong one is worse than sending
+   * none: it would point status updates at a page that cannot process them.
+   */
+  webhookUrl?: string;
 }
 
 export interface SumUpClient {
@@ -91,8 +99,14 @@ class SumUpRestClient implements SumUpClient {
       amount: penceToMajorUnits(input.amountInPence),
       currency: input.currency,
       merchant_code: this.merchantCode,
-      return_url: input.returnUrl,
+      // The two URLs are DIFFERENT things and AMPED-07B had them inverted by
+      // sending the customer return page as both. Per the current API
+      // reference: `redirect_url` is "URL where the payer should be sent",
+      // `return_url` is the "backend callback URL used by SumUp to notify
+      // your platform". Giving the browser destination to both subscribed
+      // our customer-facing return page as the webhook endpoint.
       redirect_url: input.returnUrl,
+      ...(input.webhookUrl === undefined ? {} : { return_url: input.webhookUrl }),
       valid_until: input.validUntil,
       hosted_checkout: { enabled: true },
     };

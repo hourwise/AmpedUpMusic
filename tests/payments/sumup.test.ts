@@ -135,8 +135,14 @@ describe('AMPED-07A create checkout', () => {
     expect(body.currency).toBe('GBP');
     expect(body.merchant_code).toBe(fixtures.FAKE_MERCHANT_CODE);
     expect(body.hosted_checkout).toEqual({ enabled: true });
+    // AMPED-07C1 separated these. `redirect_url` is where the PAYER's browser
+    // goes; `return_url` is SumUp's BACKEND notification callback. AMPED-07A
+    // sent the customer return page as both, which silently subscribed that
+    // page as our webhook endpoint. With no webhook URL configured the field
+    // is omitted entirely rather than defaulted to something that cannot
+    // receive notifications.
     expect(body.redirect_url).toBe(checkoutInput.returnUrl);
-    expect(body.return_url).toBe(checkoutInput.returnUrl);
+    expect(body).not.toHaveProperty('return_url');
 
     // The key is never in the URL or the body.
     expect(request.url).not.toContain(fixtures.FAKE_API_KEY);
@@ -147,6 +153,23 @@ describe('AMPED-07A create checkout', () => {
     expect(result.redirectUrl).toBe(fixtures.FAKE_HOSTED_URL);
     expect(result.expiresAt).toBe(fixtures.FAKE_VALID_UNTIL);
     expect(JSON.stringify(result)).not.toContain(fixtures.FAKE_API_KEY);
+  });
+
+  it('sends the configured webhook URL as return_url, separate from redirect_url', async () => {
+    const { impl, captured } = fakeFetch([() => jsonResponse(fixtures.CREATE_PENDING)]);
+    const provider = createSumUpPaymentProvider({
+      apiKey: fixtures.FAKE_API_KEY,
+      merchantCode: fixtures.FAKE_MERCHANT_CODE,
+      fetchImpl: impl,
+      now: () => NOW,
+      webhookUrl: 'https://amped.test/api/webhooks/sumup',
+    });
+    await provider.createCheckout(checkoutInput);
+
+    const body = JSON.parse(captured[0]!.body ?? '{}') as Record<string, unknown>;
+    expect(body.return_url).toBe('https://amped.test/api/webhooks/sumup');
+    expect(body.redirect_url).toBe(checkoutInput.returnUrl);
+    expect(body.return_url).not.toBe(body.redirect_url);
   });
 
   it('converts pence to major units exactly', async () => {
