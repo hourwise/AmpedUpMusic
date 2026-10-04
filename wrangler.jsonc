@@ -90,8 +90,8 @@
   // tried first and the top-level five-minute cron came through into the
   // staging config anyway. An empty array is what actually stops it. The
   // intent: a fresh deployment must not start calling a payment provider on a
-  // timer before anyone has confirmed its configuration. Replace with
-  // `["*/5 * * * *"]` once staging has been smoke-tested.
+  // timer. CF-02 owns payment/webhook certification and is the earliest slice
+  // that may consider enabling staging cron.
   "env": {
     "staging": {
       "name": "ampedup-staging",
@@ -100,10 +100,24 @@
       },
       "triggers": {
         "crons": []
-      }
-      // CF-01 adds, with real ids created by the operator:
-      //   "d1_databases": [{ "binding": "DB", "database_name": "ampedup-staging", "database_id": "..." }]
-      //   "r2_buckets":   [{ "binding": "MEDIA", "bucket_name": "ampedup-music-media-staging" }]
+      },
+
+      // Created by AMPED-CF-01. A database id is configuration, not a
+      // secret: it names a resource that still requires an authenticated
+      // account to reach. Staging has its OWN database and bucket - it never
+      // borrows the local-only development binding above, and there is no
+      // production resource for it to reach by accident because none exists.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ampedup-staging",
+          "database_id": "6e10740d-850a-416a-9085-7aadf7a1c684"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "ampedup-music-media-staging" }
+      ]
+
       // Secrets (SUMUP_API_KEY, SUMUP_MERCHANT_CODE) are set with
       // `wrangler secret put --env staging` and never appear in this file.
     }
