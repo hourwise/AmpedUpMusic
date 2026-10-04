@@ -61,6 +61,41 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   partially_refunded: 'Part refunded',
 };
 
+/**
+ * Payment discrepancies, in words an operator can act on (AMPED-07D2-3).
+ *
+ * The enum values are for the database. These are for a person who has to
+ * decide what to do about somebody's money, so they say what happened rather
+ * than naming a state.
+ */
+export const DISCREPANCY_KIND_LABEL: Record<string, string> = {
+  paid_after_expiry: 'Payment received after the reservation expired',
+  paid_order_expired: 'Payment found for an order that had already expired',
+  amount_mismatch: 'Payment amount does not match the order',
+  correlation_mismatch: 'Payment could not be safely matched to the order',
+};
+
+/** What the operator should actually do next. */
+export const DISCREPANCY_ACTION_LABEL: Record<string, string> = {
+  paid_after_expiry:
+    'The tickets went back on sale before this payment could be applied, so the order was not completed. Check the payment in SumUp and refund it there.',
+  paid_order_expired:
+    'This order had already expired when the payment was found. Check the payment in SumUp and refund it there.',
+  amount_mismatch:
+    'SumUp and Amped Up disagree about what was charged. Compare the two amounts in SumUp before deciding what to refund.',
+  correlation_mismatch:
+    'A completed payment could not be matched to this order safely. Investigate in SumUp before refunding anything.',
+};
+
+export const DISCREPANCY_STATE_LABEL: Record<string, string> = {
+  open: 'Needs attention',
+  resolved_manually: 'Resolved by operator',
+  dismissed: 'Dismissed',
+  refund_requested: 'Refund requested',
+  refund_confirmed: 'Refund confirmed',
+  refund_failed: 'Refund failed',
+};
+
 export const ENQUIRY_KIND_LABEL: Record<EnquiryKind, string> = {
   artist: 'Artist',
   venue: 'Venue',

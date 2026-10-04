@@ -1,0 +1,326 @@
+---
+/**
+ * Payment discrepancies (AMPED-07D2-3).
+ *
+ * The queue for money SumUp may be holding that Amped Up could not attach to
+ * an order. Each row is a customer who may be out of pocket, so the page is
+ * built around one question: what do I do about this one?
+ *
+ * Deliberately NOT a refund console. Amped Up issues no refunds; the operator
+ * deals with the payment in SumUp and then records here that they did. The
+ * wording throughout has to keep that distinction obvious, because a button
+ * that looks like it refunds somebody is worse than no button at all.
+ *
+ * No customer name or email is shown. The order reference is enough to find
+ * the payment in SumUp, and a financial exception queue is not a reason to
+ * spread personal data across another screen.
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import StatusBadge from '@/components/admin/StatusBadge.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Button from '@/components/ui/Button.astro';
+import Callout from '@/components/ui/Callout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getPaymentDiscrepancies } from '@/services/index.ts';
+import { formatPence } from '@/lib/money.ts';
+import { formatDateTime } from '@/lib/dates.ts';
+import {
+  DISCREPANCY_ACTION_LABEL,
+  DISCREPANCY_KIND_LABEL,
+  DISCREPANCY_STATE_LABEL,
+} from '@/lib/text.ts';
+
+export const prerender = false;
+
+const discrepancies = getPaymentDiscrepancies();
+const showResolved = Astro.url.searchParams.get('view') === 'resolved';
+
+const [open, openCount] = await Promise.all([
+  discrepancies.list(showResolved ? 'resolved' : 'open', 100),
+  discrepancies.countOpen(),
+]);
+
+const label = (map: Record<string, string>, key: string): string => map[key] ?? key;
+---
+
+<AdminLayout
+  title="Payment discrepancies"
+  subtitle="Payments SumUp may be holding that could not be attached to an order."
+  wide
+>
+  <div class="discrepancy-stats">
+    <StatCard
+      label="Need attention"
+      value={openCount}
+      tone={openCount > 0 ? 'stop' : 'go'}
+      detail={openCount === 1 ? '1 payment to deal with' : `${openCount} payments to deal with`}
+    />
+  </div>
+
+  <Callout tone="warn" label="Important" title="Amped Up does not send refunds">
+    <p>
+      Everything on this page is a record, not an action on the payment. To give a customer their
+      money back you must do it in SumUp. Once you have, use <strong>Mark resolved</strong> here so
+      the payment stops appearing in this queue.
+    </p>
+  </Callout>
+
+  <div class="discrepancy-views">
+    <Button
+      href="/admin/discrepancies"
+      variant={showResolved ? 'ghost' : 'solid'}
+      size="md"
+    >
+      Needs attention{openCount > 0 ? ` (${openCount})` : ''}
+    </Button>
+    <Button
+      href="/admin/discrepancies?view=resolved"
+      variant={showResolved ? 'solid' : 'ghost'}
+      size="md"
+    >
+      Already resolved
+    </Button>
+  </div>
+
+  {
+    open.length > 0 ? (
+      <DataTable caption={showResolved ? 'Resolved payment discrepancies' : 'Open payment discrepancies'}>
+        <thead>
+          <tr>
+            <th scope="col">Order</th>
+            <th scope="col">What happened</th>
+            <th scope="col" class="num">SumUp</th>
+            <th scope="col" class="num">Order</th>
+            <th scope="col">Paid at</th>
+            <th scope="col">Hold expired</th>
+            <th scope="col">Transaction</th>
+            <th scope="col">Detected</th>
+            <th scope="col">State</th>
+            <th scope="col"><span class="visually-hidden">Action</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {open.map((row) => (
+            <tr>
+              <td class="mono">
+                {row.orderReference}
+                <span class="row-sub">
+                  <StatusBadge kind="order" status={row.orderStatus} />
+                </span>
+              </td>
+              <td>
+                <p class="kind">{label(DISCREPANCY_KIND_LABEL, row.kind)}</p>
+                <p class="row-sub dim">{label(DISCREPANCY_ACTION_LABEL, row.kind)}</p>
+              </td>
+              <td class="num">
+                {row.providerAmountInPence === null ? (
+                  <span class="dim">Unreadable</span>
+                ) : (
+                  formatPence(row.providerAmountInPence)
+                )}
+              </td>
+              <td class="num">{formatPence(row.localAmountInPence)}</td>
+              <td class="dim">
+                {row.providerPaidAt ? formatDateTime(row.providerPaidAt) : 'Not reported'}
+              </td>
+              <td class="dim">{formatDateTime(row.reservationExpiresAt)}</td>
+              <td class="mono dim">
+                {/* Absent until SumUp settles the transaction. Not an error. */}
+                {row.transactionId ?? 'Not yet known'}
+              </td>
+              <td class="dim">
+                {formatDateTime(row.detectedAt)}
+                <span class="row-sub">Checked {formatDateTime(row.lastCheckedAt)}</span>
+              </td>
+              <td>
+                <Badge tone={row.state === 'open' ? 'stop' : 'muted'}>
+                  {label(DISCREPANCY_STATE_LABEL, row.state)}
+                </Badge>
+                {row.resolvedAt && (
+                  <span class="row-sub dim">{formatDateTime(row.resolvedAt)}</span>
+                )}
+              </td>
+              <td>
+                {row.state === 'open' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-resolve={row.id}
+                    data-reference={row.orderReference}
+                  >
+                    Mark resolved
+                  </Button>
+                ) : row.state === 'resolved_manually' ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-reopen={row.id}
+                    data-reference={row.orderReference}
+                  >
+                    Reopen
+                  </Button>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    ) : (
+      <EmptyState
+        title={showResolved ? 'Nothing resolved yet' : 'No payment discrepancies'}
+        body={
+          showResolved
+            ? 'Discrepancies you mark resolved will be kept here as a record.'
+            : 'Every payment SumUp has taken is accounted for against an order. Nothing needs your attention.'
+        }
+      />
+    )
+  }
+
+  <p class="discrepancy-error" data-resolve-error role="alert" hidden></p>
+</AdminLayout>
+
+<script>
+  // Mark resolved. The button never touches money: it records that a human
+  // dealt with the payment in SumUp. The confirmation has to say so plainly,
+  // because the one dangerous misreading of this page is "I clicked it, so
+  // the customer has been refunded".
+  const errorOutput = document.querySelector<HTMLElement>('[data-resolve-error]');
+
+  function showError(message: string) {
+    if (!errorOutput) return;
+    errorOutput.textContent = message;
+    errorOutput.hidden = false;
+  }
+
+  async function transition(
+    button: HTMLButtonElement,
+    id: string,
+    action: 'resolve' | 'reopen',
+    failure: string,
+  ) {
+    // A disabled button is a courtesy against a double click, never the thing
+    // that makes the transition exactly-once - the database does that.
+    button.disabled = true;
+    errorOutput?.setAttribute('hidden', '');
+
+    try {
+      const response = await fetch(
+        `/api/admin/discrepancies/${encodeURIComponent(id)}/${action}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      );
+      if (!response.ok) {
+        button.disabled = false;
+        showError(
+          response.status === 403
+            ? 'Your admin session has expired. Reload the page and sign in again.'
+            : failure,
+        );
+        return;
+      }
+      window.location.reload();
+    } catch {
+      showError('Could not reach the server. Check your connection and try again.');
+      button.disabled = false;
+    }
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('[data-resolve]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.resolve;
+      const reference = button.dataset.reference ?? 'this order';
+      if (!id || button.disabled) return;
+
+      const confirmed = window.confirm(
+        [
+          `Mark the payment discrepancy for ${reference} as resolved?`,
+          '',
+          'This only updates the Amped Up record. NO refund is sent to the customer and nothing is changed at SumUp.',
+          '',
+          'Only continue if you have already checked the payment in SumUp and done whatever was needed there.',
+        ].join(String.fromCharCode(10)),
+      );
+      if (!confirmed) return;
+
+      await transition(
+        button,
+        id,
+        'resolve',
+        'Could not mark that discrepancy resolved. Please try again.',
+      );
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-reopen]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.reopen;
+      const reference = button.dataset.reference ?? 'this order';
+      if (!id || button.disabled) return;
+
+      const confirmed = window.confirm(
+        [
+          `Put the payment discrepancy for ${reference} back in the queue?`,
+          '',
+          'Use this if it was marked resolved by mistake. The earlier record is kept.',
+        ].join(String.fromCharCode(10)),
+      );
+      if (!confirmed) return;
+
+      await transition(button, id, 'reopen', 'Could not reopen that discrepancy. Please try again.');
+    });
+  });
+</script>
+
+<style>
+  .discrepancy-stats {
+    display: grid;
+    gap: var(--s-3);
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    margin-bottom: var(--s-4);
+  }
+
+  .discrepancy-views {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    margin-block: var(--s-4);
+  }
+
+  .kind {
+    font-weight: 600;
+  }
+
+  .row-sub {
+    display: block;
+    margin-top: var(--s-1);
+    font-size: var(--step--2);
+  }
+
+  .dim {
+    color: var(--text-faint);
+  }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: var(--step--2);
+  }
+
+  .discrepancy-error {
+    margin-top: var(--s-4);
+    padding: var(--s-3);
+    border: 1px solid color-mix(in srgb, var(--stop) 55%, transparent);
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--stop) 12%, transparent);
+  }
+
+  .discrepancy-error[hidden] {
+    display: none;
+  }
+</style>

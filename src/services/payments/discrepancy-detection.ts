@@ -68,6 +68,8 @@ export interface DiscrepancyDetectionSummary {
   created: number;
   /** Already recorded; only `last_checked_at` moved. */
   alreadyRecorded: number;
+  /** Already recorded, and this run attached the transaction that names it. */
+  enriched: number;
   /** Provider holds nothing. Nothing to record. */
   clear: number;
   /** Could not reach SumUp. Nothing decided, nothing written. */
@@ -88,6 +90,7 @@ const emptySummary = (): DiscrepancyDetectionSummary => ({
   examined: 0,
   created: 0,
   alreadyRecorded: 0,
+  enriched: 0,
   clear: 0,
   retrievalFailures: 0,
 });
@@ -200,10 +203,35 @@ export async function detectPaymentDiscrepancies(
       if (created) {
         summary.created += 1;
         log('discrepancy-detected', { order: candidate.reference, kind });
-      } else {
-        summary.alreadyRecorded += 1;
-        await options.store.touch(candidate.orderId, candidate.paymentReference, at);
+        return;
       }
+
+      // Already recorded. If the row was written from the checkout fallback
+      // and SumUp can now name the transaction, attach it: the record should
+      // be as authoritative as the newest authenticated observation, and a
+      // refund would later be addressed to that transaction. This enriches
+      // the EXISTING row - a second financial record for the same money
+      // would be worse than weaker evidence.
+      if (outcome.evidence.transactionId !== null) {
+        const { enriched } = await options.store.enrich(
+          {
+            orderId: candidate.orderId,
+            checkoutId: candidate.paymentReference,
+            transactionId: outcome.evidence.transactionId,
+            providerPaidAt: outcome.evidence.paidAt,
+            providerAmountInPence: outcome.evidence.amountInPence,
+          },
+          at,
+        );
+        if (enriched) {
+          summary.enriched += 1;
+          log('discrepancy-enriched', { order: candidate.reference });
+          return;
+        }
+      }
+
+      summary.alreadyRecorded += 1;
+      await options.store.touch(candidate.orderId, candidate.paymentReference, at);
     } catch (error) {
       // One bad candidate must never strand the batch.
       summary.retrievalFailures += 1;

@@ -965,9 +965,9 @@ Refund state, when it matters, requires a **transaction** lookup (`refunded_amou
 
 #### Deferred
 
-- **AMPED-07D2-3** — operator visibility: discrepancy badge, filtered list, recommended action,
-  and the manual `resolved_manually` / `dismissed` transitions. Nothing in 07D2-2 is visible to
-  staff yet; the rows exist and are queryable, but no admin screen shows them.
+- **AMPED-07D2-3** — operator visibility. **DONE**: badge, list, recommended action and the
+  manual `resolved_manually` transition (plus Reopen) shipped in that slice. `dismissed` remains
+  unexposed.
 - **In-app refunds** — deferred indefinitely, gated on the credential question above. The
   `refund_requested` / `refund_confirmed` / `refund_failed` states are reserved in migration 0013
   so the schema need not change later, and 07D2-2 is tested never to write them.
@@ -976,6 +976,102 @@ Refund state, when it matters, requires a **transaction** lookup (`refunded_amou
 
 **Stop conditions** — If detection would require trusting webhook payload data, storing raw
 provider responses, resurrecting a lapsed reservation, or creating a second writer to `paid`.
+
+---
+
+### AMPED-07D2-3 — Discrepancy operator visibility and manual resolution
+
+**Objective** — A human finds out about money SumUp is holding, and can record that they dealt
+with it.
+
+**Preconditions** — AMPED-07D2-2 accepted at `6e057b8`.
+
+**Allowed scope** — `src/pages/admin/discrepancies.astro`, `src/pages/api/admin/discrepancies/**`,
+`src/pages/admin/orders.astro` (badge only), `src/services/payments/**`, `src/services/index.ts`,
+`src/lib/text.ts`, `src/lib/site.ts` (nav entry), `tests/**`.
+
+**Forbidden scope** — refund API calls, OAuth, order status changes, customer email, deployment,
+Access configuration.
+
+#### Discrepancies are now operator-visible
+
+`/admin/discrepancies`, linked from the admin navigation and from a stat card on the orders page —
+which is where an operator already is when a customer says they have paid and have no ticket. The
+badge counts `state='open'` only, so a resolved discrepancy stops demanding attention. Open work
+is listed oldest-detected first (longest-unresolved money is the most urgent); resolved history
+lives behind a separate view, newest first, and is never mixed into the active queue.
+
+Shown per row: order reference and local order status, the discrepancy in plain English with a
+recommended action, both amounts, provider paid-at, hold expiry, transaction id (or "Not yet
+known" — absence is normal, not an error), detected and last-checked times, and state. **No
+customer name or email**: the order reference is enough to find the payment in SumUp, and a
+financial queue is not a reason to spread personal data onto another screen. No credentials, no
+provider bodies, no card data.
+
+#### External refund remains V1 policy, and the wording must protect it
+
+Amped Up sends no refunds. The operator refunds in SumUp and then records that here. The action
+is **"Mark resolved"**, never "Refund" — a button that looks like it refunds somebody is worse
+than no button at all. The page carries a standing warning, and the confirmation states plainly
+that no refund is sent and nothing changes at SumUp.
+
+`resolved_manually` therefore means exactly one thing: **an authorised operator attests that the
+discrepancy was dealt with externally.** It is not evidence that SumUp refunded anything, and the
+recorded event says so in those words. No event named `refunded` is ever written, because Amped Up
+has not verified that a refund occurred.
+
+#### Order status is deliberately unchanged
+
+Resolving a discrepancy does not touch the order. Expired stays expired; `awaiting_payment` stays
+governed by the reservation lifecycle; nothing becomes `paid` or `refunded`. The relationship
+between an externally completed SumUp refund and `orders.status='refunded'` needs its own
+invariant and is **not** defined here.
+
+#### Transitions
+
+`open -> resolved_manually` and `resolved_manually -> open` (**Reopen**, implemented). Both are
+conditional D1 updates, so concurrency is settled by the database rather than a disabled button,
+and both append to the immutable history rather than rewriting it — a reopened discrepancy still
+shows that it was resolved once, and by whom. Reopen exists because a financial record should not
+be a one-way door: the cost of an uncorrectable mis-click is that real money silently stops being
+chased.
+
+`dismissed` is reserved in the schema but **not exposed**. A financial discrepancy either stays
+open or is deliberately marked externally resolved; false-positive dismissal needs its own
+evidentiary semantics first.
+
+Authorisation is the existing AMPED-04A boundary: the routes sit under `/api/admin/`, so the
+middleware has verified a Cloudflare Access token before the handler runs, and `operatorFrom`
+refuses without the verified operator. The actor recorded is that verified identity. The request
+body is empty by design — the discrepancy id comes from the path and the permitted transition
+from the route, so there is no client-supplied state, amount, kind or provider fact to trust.
+
+#### Evidence enrichment (repair made in this slice)
+
+AMPED-07D2-2 excluded any order with a discrepancy from re-observation, so a row recorded from the
+checkout fallback could never gain the transaction id once SumUp settled it — it stayed
+permanently less authoritative than the provider. Repaired narrowly:
+
+- the candidate query now excludes only **fully identified** discrepancies
+  (`transaction_id is not null`), so an unidentified row stays observable and an identified one
+  stops costing provider calls;
+- `enrich()` attaches `transaction_id`, `provider_paid_at` and `provider_amount_in_pence` to the
+  **existing** row, gated on `transaction_id is null` for exactly-once, and appends one
+  `evidence_enriched` event.
+
+It is evidence only: `state`, `kind` and `resolved_at` are never touched, so a later observation
+can improve a **resolved** record without silently reopening it. The identity system is unchanged
+— `identity_key` is not rewritten when the preferred identity strengthens, because
+`UNIQUE(order_id, checkout_id)` already guarantees one row per payment and mutating a business key
+would risk a collision for no gain.
+
+#### Still deferred
+
+- **In-app refunds.** Gated on the unresolved question of whether Amped Up's merchant API key can
+  issue one at all (see the 07D2-2 record of the contradictory SumUp documentation). The
+  `refund_requested` / `refund_confirmed` / `refund_failed` states remain reserved and unwritten.
+- **`orders.status='refunded'`** after an external refund — needs its own invariant.
+- **Dismissal** of false positives.
 
 ---
 

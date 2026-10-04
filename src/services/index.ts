@@ -391,6 +391,25 @@ export function getPaymentDiscrepancyDetection(): {
 }
 
 /**
+ * The AMPED-07D2-3 operator seam for payment discrepancies.
+ *
+ * Reads and the manual-resolution transition only. Unlike the detection
+ * seam it needs no SumUp credentials - an operator must be able to see and
+ * resolve a financial exception even on a runtime where the payment
+ * integration is unconfigured or broken, which is exactly when discrepancies
+ * are most likely to exist.
+ */
+export function getPaymentDiscrepancies(): DiscrepancyStore {
+  if (!database) {
+    throw new Error(
+      'The D1 binding "DB" is not available, so payment discrepancies cannot be read.',
+    );
+  }
+  cachedDiscrepancyStore ??= createD1DiscrepancyStore(database);
+  return cachedDiscrepancyStore;
+}
+
+/**
  * Reservation maintenance used by the scheduled sweep (AMPED-06B). The Worker
  * entry passes its platform time in; the SQL stays behind the service layer.
  */

@@ -18,7 +18,7 @@ import AdminIcon from '@/components/admin/AdminIcon.astro';
 import Button from '@/components/ui/Button.astro';
 import EmptyState from '@/components/ui/EmptyState.astro';
 import ScaffoldNote from '@/components/ui/ScaffoldNote.astro';
-import { getServices } from '@/services/index.ts';
+import { getPaymentDiscrepancies, getServices } from '@/services/index.ts';
 import { formatPence } from '@/lib/money.ts';
 
 const services = getServices();
@@ -34,6 +34,11 @@ const orders = query
   : eventId
     ? await services.orders.listForEvent(eventId)
     : await services.orders.listRecent(60);
+
+// AMPED-07D2-3: money SumUp may be holding that is attached to no order.
+// Surfaced here because this is the page an operator is already on when a
+// customer says they have paid and have no ticket.
+const openDiscrepancies = await getPaymentDiscrepancies().countOpen();
 
 const paid = orders.filter((o) => o.order.status === 'paid');
 const gross = paid.reduce((sum, o) => sum + o.order.totalInPence, 0);
@@ -88,6 +93,17 @@ const ticketCount = paid.reduce((sum, o) => sum + o.ticketCount, 0);
       value={orders.filter((o) => o.order.status === 'awaiting_payment' || o.order.status === 'refunded').length}
       detail="In checkout or refunded"
       tone="warn"
+    />
+    <StatCard
+      label="Payment discrepancies"
+      value={openDiscrepancies}
+      detail={
+        openDiscrepancies === 0
+          ? 'All payments accounted for'
+          : 'Require attention'
+      }
+      tone={openDiscrepancies > 0 ? 'stop' : 'go'}
+      href="/admin/discrepancies"
     />
   </div>
 

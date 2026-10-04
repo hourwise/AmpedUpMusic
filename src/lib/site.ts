@@ -66,6 +66,9 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
   { label: 'Dashboard', href: '/admin', icon: 'dashboard' },
   { label: 'Gigs', href: '/admin/gigs', icon: 'calendar' },
   { label: 'Orders', href: '/admin/orders', icon: 'receipt' },
+  // AMPED-07D2-3. Next to Orders because that is where an operator goes
+  // when somebody says they have been charged and has no ticket.
+  { label: 'Payments', href: '/admin/discrepancies', icon: 'receipt' },
   { label: 'Artists', href: '/admin/artists', icon: 'artist' },
   { label: 'Venues', href: '/admin/venues', icon: 'venue' },
   { label: 'Photos', href: '/admin/media', icon: 'photo' },
