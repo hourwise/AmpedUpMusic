@@ -122,6 +122,15 @@ export type ApplyPaymentResult =
   | { outcome: 'already-paid'; orderId: string; paidAt?: string }
   | { outcome: 'not-applicable'; orderId: string; status: OrderStatus };
 
+/** One order the reconciler may still be able to rescue. */
+export interface ReconciliationCandidate {
+  orderId: string;
+  reference: string;
+  /** Always non-null: an order without one has no provider checkout to ask about. */
+  paymentReference: string;
+  reservationExpiresAt: string;
+}
+
 /** The minimum local truth needed to correlate a provider checkout. */
 export interface PaymentCorrelationSnapshot {
   orderId: string;
@@ -176,6 +185,23 @@ export interface OrderMutationService {
     provider: string,
     paymentReference: string,
   ): Promise<PaymentCorrelationSnapshot | null>;
+  /**
+   * Orders a scheduled reconciliation could still rescue (AMPED-07D).
+   *
+   * Deliberately narrow: an order only qualifies while a verified payment
+   * could actually be applied to it. That means a LIVE hold, because
+   * `applyVerifiedPayment` refuses an expired one and resurrecting released
+   * stock is never correct. Asking SumUp about orders we could not act on
+   * anyway would just spend requests to learn nothing.
+   *
+   * Bounded by `limit` and ordered by the soonest expiry, so the orders
+   * closest to losing their hold are rescued first.
+   */
+  listReconciliationCandidates(
+    provider: string,
+    now: Date,
+    limit: number,
+  ): Promise<ReconciliationCandidate[]>;
   cancelOrder(orderId: string): Promise<void>;
   expireOrder(orderId: string): Promise<void>;
   /**
@@ -626,6 +652,44 @@ class D1OrderMutations implements OrderMutationService {
       if (((results[0]?.meta?.changes ?? 0) as number) === 1) expired += 1;
     }
     return { expired };
+  }
+
+  async listReconciliationCandidates(
+    provider: string,
+    now: Date,
+    limit: number,
+  ): Promise<ReconciliationCandidate[]> {
+    // Timestamps are CHECK-constrained to one canonical ISO-8601 UTC format,
+    // so a plain string comparison orders them correctly AND stays sargable.
+    // That matters: `julianday(reservation_expires_at) > julianday(?)` forces
+    // the planner to drop the range and use only `status`, whereas this form
+    // searches the accepted 0010 index on both columns and gets the ORDER BY
+    // from the index too. Verified with EXPLAIN QUERY PLAN:
+    //   SEARCH orders USING INDEX orders_status_reservation_expires_at_idx
+    //     (status=? AND reservation_expires_at>?)
+    const rows = await this.db
+      .prepare(
+        'select id, reference, payment_reference, reservation_expires_at from orders ' +
+          "where status = 'awaiting_payment' " +
+          'and payment_provider = ?1 ' +
+          'and payment_reference is not null ' +
+          'and reservation_expires_at > ?2 ' +
+          'order by reservation_expires_at asc limit ?3',
+      )
+      .bind(provider, now.toISOString(), limit)
+      .all<{
+        id: string;
+        reference: string;
+        payment_reference: string;
+        reservation_expires_at: string;
+      }>();
+
+    return rows.results.map((row) => ({
+      orderId: row.id,
+      reference: row.reference,
+      paymentReference: row.payment_reference,
+      reservationExpiresAt: row.reservation_expires_at,
+    }));
   }
 
   // -- helpers -------------------------------------------------------------

@@ -810,29 +810,88 @@ difference; do not improvise a verification scheme.
 
 **Objective** — No order is left stuck because a webhook never arrived.
 
-**Preconditions** — AMPED-07C merged.
+**Preconditions** — AMPED-07C1 accepted.
 
 **Allowed scope** — `src/worker/scheduled.ts`, `src/services/payments/**`, `src/services/orders/**`,
 `src/pages/admin/orders.astro` (reconciliation status display only), `tests/**`.
 
 **Forbidden scope** — webhook handler internals, UI beyond the status column, email, tickets.
 
-**Implementation requirements**
-1. A scheduled job that finds orders in `awaiting_payment` past their window and asks SumUp what happened.
-2. Reconciliation uses the same confirmation path as the webhook — one code path to `paid`, never two.
-3. Orders genuinely abandoned are expired and the stock released.
-4. A discrepancy (SumUp says paid, we say expired) is surfaced to the operator, never auto-resolved
-   silently — this is money.
-5. Refund status is read back from SumUp; V1 does not initiate refunds.
+> **REVISED 2026-10-04 (implemented in AMPED-07D).** Two requirements below changed and one
+> area was deliberately deferred. Recorded here rather than quietly implemented differently:
+>
+> | Original | Status | Why |
+> |---|---|---|
+> | (1) "finds orders in `awaiting_payment` **past their window**" | **SUPERSEDED** | Acting on a lapsed hold means resurrecting stock the sweep already released, which can oversell the room. Reconciliation now targets orders whose hold is still LIVE, so a verified payment can actually be applied. The paid-but-expired case is detected and counted, never auto-resolved. |
+> | (3) "Orders genuinely abandoned are expired and the stock released" | **UNCHANGED, pre-existing** | Already owned by the AMPED-06B sweep. 07D does not duplicate it; it runs *before* it in the same tick. |
+> | (4) discrepancy surfaced to the operator | **PARTIAL — deferred** | 07D counts `discrepancies` and logs them operationally. The `admin/orders.astro` status display is NOT implemented in this slice and remains outstanding. |
+> | (5) refund status read back from SumUp | **NOT IMPLEMENTED — deferred** | Out of the authorised 07D instruction; no refund reading exists. V1 still does not initiate refunds. |
 
-**Tests required** — a lost webhook is reconciled to `paid`; an abandoned checkout expires and releases
-stock; reconciliation is idempotent against a webhook arriving late; a discrepancy is flagged, not
-resolved.
+**Implementation requirements**
+1. A scheduled job that finds `awaiting_payment` orders which still hold stock and have a SumUp
+   `payment_reference`, and asks SumUp what happened. Candidate selection is bounded
+   (`RECONCILIATION_BATCH_SIZE`), soonest-expiry-first, and served by the accepted 0010 index
+   (`SEARCH orders USING INDEX orders_status_reservation_expires_at_idx
+   (status=? AND reservation_expires_at>?)`) — no new index was required.
+2. Reconciliation uses the same confirmation path as the webhook: the AMPED-07C1
+   `SumUpPaymentVerifier.verify()` and the AMPED-07C1 `applyVerifiedPayment()`. Exactly one SQL
+   statement in the application can set an order to `paid`, and it is not in the reconciler.
+3. Orders genuinely abandoned are expired and the stock released — by the AMPED-06B sweep, which
+   runs AFTER reconciliation in the same scheduled tick so a late payment is rescued before its
+   hold can be swept away.
+4. Provider `PENDING`, `FAILED` and `EXPIRED` cause no local transition. A provider failure or
+   timeout mutates nothing and is retried on the next tick. One failing candidate never strands
+   the rest of the batch.
+5. An expired or released reservation is never resurrected. A verified payment against one is
+   counted as a discrepancy and logged, never applied.
+6. Provider traffic is bounded: `RECONCILIATION_BATCH_SIZE` candidates per run, at most
+   `RECONCILIATION_CONCURRENCY` simultaneous retrievals. No polling loop.
+7. Reconciliation inspecting an order writes no business-audit row. The guarded `order.paid`
+   audit inside `applyVerifiedPayment` remains the only business record.
+
+**Cadence** — the existing five-minute cron, unchanged. Derived from the lifecycle rather than
+convenience: with a 30-minute hold, every order gets roughly six reconciliation attempts before it
+can lapse, and a dropped webhook is recovered within about five minutes instead of being lost.
+
+**Tests required** — lost webhook reconciled to `paid`; repeated runs harmless; no eligible orders;
+missing `payment_reference` ignored; already-paid and already-expired ignored; expired never
+resurrected; PENDING / FAILED / EXPIRED unchanged; wrong reference / amount / currency / merchant /
+missing successful transaction never pay; retrieval failure changes nothing; one bad candidate does
+not strand the batch; **concurrent** webhook-vs-reconciler, reconciler-vs-reconciler and
+reconciler-vs-sweep each produce exactly one outcome; batch and concurrency bounds enforced; the
+scheduled task still expires holds when SumUp is unconfigured.
 
 **Acceptance criteria** — a deliberately dropped webhook is recovered by reconciliation.
 `npm run verify` green.
 
-**Stop conditions** — If reconciliation would need to initiate a refund.
+**Stop conditions** — If reconciliation would need to initiate a refund, or would need a second
+writer to `paid`.
+
+---
+
+### Deployment invariant — migration 0012
+
+`0012_payment_reference_identity.sql` adds a partial UNIQUE index on non-null
+`orders.payment_reference`. It was proven safe against local data before being written, but a
+remote database has its own history.
+
+**Before 0012 is applied to any remote staging or production D1, that database MUST receive a
+read-only duplicate check first:**
+
+```sql
+SELECT payment_reference, COUNT(*) AS n
+FROM orders
+WHERE payment_reference IS NOT NULL
+GROUP BY payment_reference
+HAVING COUNT(*) > 1;
+```
+
+An empty result is required. If it returns rows, the migration will fail on apply — and more
+importantly those duplicates mean a checkout id does not uniquely identify an order, so the webhook
+and reconciler could credit the wrong customer. Resolve the duplicates and understand how they
+arose before migrating; do not weaken the index to accommodate them.
+
+No remote database was queried while implementing AMPED-07C1 or AMPED-07D.
 
 ---
 

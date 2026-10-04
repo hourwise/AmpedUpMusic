@@ -351,6 +351,24 @@ export function getSumUpVerification(): {
 }
 
 /**
+ * The AMPED-07D reconciliation seam.
+ *
+ * Deliberately the SAME pair the webhook route gets: one verifier, one
+ * writer. Reconciliation is orchestration over the accepted 07C1 seam, not a
+ * second way to confirm a payment.
+ *
+ * Throws `PaymentConfigurationError` when SumUp is unconfigured, which the
+ * scheduled task treats as "skip reconciliation" rather than "fail the run" -
+ * expiring holds must keep working on a runtime with no payment credentials.
+ */
+export function getPaymentReconciliation(): {
+  orders: OrderMutationService;
+  verifier: SumUpPaymentVerifier;
+} {
+  return getSumUpVerification();
+}
+
+/**
  * Reservation maintenance used by the scheduled sweep (AMPED-06B). The Worker
  * entry passes its platform time in; the SQL stays behind the service layer.
  */
