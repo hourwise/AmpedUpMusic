@@ -83,7 +83,7 @@
   // `AMPED_ENV ("development")` and the default bindings - no error, just the
   // wrong environment. Both halves are required:
   //
-  //   CLOUDFLARE_ENV=staging npm run build
+  //   CLOUDFLARE_ENV=staging AMPED_ENV=staging npm run build
   //   npx wrangler deploy --env staging
   //
   // CRON IS DISABLED EXPLICITLY, NOT BY OMISSION. Leaving `triggers` out was
@@ -102,7 +102,8 @@
         { "pattern": "staging.ampedupmusicpromo.co.uk", "custom_domain": true }
       ],
       "vars": {
-        "AMPED_ENV": "staging"
+        "AMPED_ENV": "staging",
+        "SUMUP_WEBHOOK_URL": "https://staging.ampedupmusicpromo.co.uk/api/webhooks/sumup"
       },
       "triggers": {
         "crons": []
