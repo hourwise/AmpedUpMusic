@@ -286,5 +286,8 @@ export const V1_TABLES: readonly string[] = [
   'mailing_list',
   'audit_log',
   'processed_webhooks',
+  // AMPED-07D2-2 - durable financial exceptions.
+  'payment_discrepancies',
+  'payment_discrepancy_events',
   'schema_migrations',
 ];

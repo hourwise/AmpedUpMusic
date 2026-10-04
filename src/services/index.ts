@@ -58,6 +58,7 @@ import {
   type SocialMutationService,
 } from './d1/social.ts';
 import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
+import { createD1DiscrepancyStore, type DiscrepancyStore } from './payments/discrepancies.ts';
 import { createSumUpClient } from './payments/sumup/client.ts';
 import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
 import {
@@ -172,6 +173,7 @@ let cachedSocial: (SocialMutationService & SocialService) | null = null;
 let cachedOrderMutations: OrderMutationService | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
 let cachedVerifier: SumUpPaymentVerifier | null = null;
+let cachedDiscrepancyStore: DiscrepancyStore | null = null;
 
 /**
  * The service set for this isolate. Throws when `DB` is not bound: serving the
@@ -366,6 +368,26 @@ export function getPaymentReconciliation(): {
   verifier: SumUpPaymentVerifier;
 } {
   return getSumUpVerification();
+}
+
+/**
+ * The AMPED-07D2-2 discrepancy-detection seam.
+ *
+ * Returns the durable discrepancy store plus the SAME verifier the webhook
+ * and reconciler use. It deliberately does NOT expose order mutations: this
+ * pass must be structurally incapable of writing an order, let alone paying
+ * one.
+ */
+export function getPaymentDiscrepancyDetection(): {
+  store: DiscrepancyStore;
+  verifier: SumUpPaymentVerifier;
+} {
+  const { verifier } = getSumUpVerification();
+  if (!database) {
+    throw new Error('The D1 binding "DB" is not available, so detection cannot run.');
+  }
+  cachedDiscrepancyStore ??= createD1DiscrepancyStore(database);
+  return { store: cachedDiscrepancyStore, verifier };
 }
 
 /**

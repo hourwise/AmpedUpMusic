@@ -869,6 +869,116 @@ writer to `paid`.
 
 ---
 
+### AMPED-07D2-2 — Durable payment discrepancy detection
+
+**Objective** — When SumUp holds money we cannot attach to an order, a human finds out.
+
+**Preconditions** — AMPED-07D accepted.
+
+**Allowed scope** — `migrations/0013`, `src/services/payments/**`, `src/worker/scheduled.ts`,
+`src/services/index.ts`, `src/db/schema.ts` (table inventory registration only), `tests/**`.
+
+**Forbidden scope** — refunds, OAuth, admin UI, order resurrection, customer notification.
+
+#### Policy A is permanent
+
+> **Once `reservation_expires_at <= now`, the reservation has ceased to reserve inventory. That
+> order must never subsequently transition to `paid`, regardless of when the provider claims the
+> payment was made.**
+
+**Expiry is time-based, not sweep-based.** This is the fact the whole design rests on. `reserved`
+is computed in both the acquisition gate (`src/services/inventory/acquire.ts`) and the public read
+(`src/services/d1/tickets.ts`) as `status = 'awaiting_payment' AND reservation_expires_at > ?now`,
+where `?now` is the *reading request's* clock. The instant the timestamp passes, those seats are
+purchasable by anybody — the AMPED-06B sweep does not release them, it only writes the label down
+afterwards.
+
+**Policy B (authoritative payment-time cutoff) is rejected.** Letting a payment proven to have
+completed before the deadline race the sweep would credit an order whose seats may already have
+been resold in the unswept gap. That reintroduces precisely the oversell AMPED-06C exists to
+prevent, it gets worse the longer the scheduler is down, and it still needs the refund path for
+every case where the seats did go. **Policy C (re-acquire capacity, then credit)** is correct but
+is a new state path for a case better addressed by reconciling earlier; also rejected for now.
+
+The real lever is prevention: a live hold already gets ~6 reconciliation attempts before it can
+lapse.
+
+#### What a discrepancy is
+
+> Authenticated provider evidence indicates SumUp may hold customer money which Amped Up cannot
+> safely attach to the local order.
+
+The discriminator is **money**, not failure: a SUCCESSFUL transaction exists, or the checkout
+reads `PAID`. PENDING, an ordinary decline, a checkout that expired unpaid, a transient retrieval
+failure, malformed webhook input and unknown attacker-supplied checkout ids are operational
+conditions and get no financial record — recording them would bury the handful of rows that
+represent real money.
+
+Kinds: `paid_after_expiry`, `paid_order_expired`, `amount_mismatch`, `correlation_mismatch`.
+
+#### Detection window and identity
+
+**Window: 30 minutes**, matching the reservation lifetime. With the 5-minute cron that gives each
+lapsed order ~6 opportunities to be examined — the same budget a live hold gets. It is not longer
+because a payment cannot occur after the checkout's own `valid_until`, which is the same instant
+as the local expiry under the AMPED-07B single-clock rule; by the time the window closes,
+everything that could have been paid already has been. Batch 20, concurrency 4. Orders that
+already have a discrepancy drop out of the candidate query, so repeated runs cost no provider
+calls.
+
+**Identity key** (`identity_key`, NOT NULL, UNIQUE):
+`sumup_txn:<transaction id>` when an authenticated transaction names the money, otherwise
+`sumup_checkout:<checkout id>` — which covers the real recurring case of a PAID checkout whose
+transaction list has not settled. Both inputs are trustworthy: the checkout id comes from our own
+`payment_reference`, never from a webhook body. `UNIQUE(provider, transaction_id)` was rejected
+because SQLite permits unlimited NULLs through a UNIQUE constraint, which would silently allow
+duplicates for exactly that case. A second constraint, `UNIQUE(order_id, checkout_id)`, stops a
+discrepancy first seen without a transaction id from being recorded again under the preferred
+key once it settles. Neither constraint subsumes the other.
+
+#### Scheduler
+
+`live-hold reconciliation → expiry bookkeeping sweep → discrepancy detection`.
+
+Detection is last by preference, not necessity: because the boundary is the timestamp rather than
+the sweep, it sees the same lapsed orders either way. A test pins that running it before or after
+the sweep produces the same durable outcome — only the recorded `kind` differs.
+
+#### Refunds remain external — and the documentation contradicts itself
+
+V1 policy is unchanged: **the operator refunds in SumUp**, then records the outcome here. No
+in-app refund exists and none is implied by a discrepancy row.
+
+Two SumUp documents disagree about how a refund would ever be issued, and this is unresolved:
+
+| Source | Endpoint | Authentication |
+|---|---|---|
+| Current API reference | `POST /v1.0/merchants/{merchant_code}/payments/{transaction_id}/refunds` | documents API-key examples |
+| Older guide (`/docs/refund/`, `/online-payments/guides/refund`) | `POST /v0.1/me/refund/{txn_id}` | *"Valid access token obtained with the Authorization code flow"*; explicitly **cannot** use client-credentials |
+
+The older guide is treated as legacy/contradictory pending sandbox certification. Whether the
+merchant-scoped API key Amped Up already holds can issue a refund is **not established**, and no
+money-moving probe was made. Settling it needs its own authorisation.
+
+Refund state, when it matters, requires a **transaction** lookup (`refunded_amount`,
+`simple_status`): checkout retrieval alone cannot distinguish a partial refund from a full one.
+
+#### Deferred
+
+- **AMPED-07D2-3** — operator visibility: discrepancy badge, filtered list, recommended action,
+  and the manual `resolved_manually` / `dismissed` transitions. Nothing in 07D2-2 is visible to
+  staff yet; the rows exist and are queryable, but no admin screen shows them.
+- **In-app refunds** — deferred indefinitely, gated on the credential question above. The
+  `refund_requested` / `refund_confirmed` / `refund_failed` states are reserved in migration 0013
+  so the schema need not change later, and 07D2-2 is tested never to write them.
+- Resolving a discrepancy must **not** set the order to `refunded`; that transition belongs to
+  the later workflow and needs its own invariant.
+
+**Stop conditions** — If detection would require trusting webhook payload data, storing raw
+provider responses, resurrecting a lapsed reservation, or creating a second writer to `paid`.
+
+---
+
 ### Deployment invariant — migration 0012
 
 `0012_payment_reference_identity.sql` adds a partial UNIQUE index on non-null
@@ -891,7 +1001,10 @@ importantly those duplicates mean a checkout id does not uniquely identify an or
 and reconciler could credit the wrong customer. Resolve the duplicates and understand how they
 arose before migrating; do not weaken the index to accommodate them.
 
-No remote database was queried while implementing AMPED-07C1 or AMPED-07D.
+No remote database was queried while implementing AMPED-07C1, AMPED-07D or AMPED-07D2-2.
+
+`0013_payment_discrepancies.sql` is purely additive - two new tables and their indexes -
+so it needs no pre-apply data check of its own.
 
 ---
 

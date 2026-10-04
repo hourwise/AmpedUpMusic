@@ -29,6 +29,7 @@ import {
   RECONCILIATION_BATCH_SIZE,
   RECONCILIATION_CONCURRENCY,
 } from '../../src/services/payments/reconciliation.ts';
+import { createD1DiscrepancyStore } from '../../src/services/payments/discrepancies.ts';
 import { PaymentConfigurationError } from '../../src/services/payments/sumup/types.ts';
 import type { PaymentProvider } from '../../src/services/contracts.ts';
 import * as fixtures from './fixtures.ts';
@@ -39,6 +40,7 @@ vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 const hoisted = vi.hoisted(() => ({
   verification: null as null | (() => unknown),
   maintenance: null as null | (() => unknown),
+  discrepancies: null as null | (() => unknown),
 }));
 
 vi.mock('@/services/index.ts', () => ({
@@ -53,6 +55,13 @@ vi.mock('@/services/index.ts', () => ({
   getReservationMaintenance: () => {
     if (!hoisted.maintenance) throw new Error('maintenance not wired in test');
     return hoisted.maintenance();
+  },
+  // AMPED-07D2-2 added a third scheduled pass. These tests are about
+  // reconciliation, so detection is wired to the same verifier and a real
+  // store, and simply finds nothing of its own to do.
+  getPaymentDiscrepancyDetection: () => {
+    if (!hoisted.discrepancies) throw new PaymentConfigurationError();
+    return hoisted.discrepancies();
   },
 }));
 
@@ -140,6 +149,7 @@ describe('AMPED-07D payment reconciliation', () => {
   beforeEach(() => {
     hoisted.verification = null;
     hoisted.maintenance = null;
+    hoisted.discrepancies = null;
   });
 
   function orders(now: () => Date = () => FIXED_NOW): OrderMutationService {
@@ -617,6 +627,7 @@ describe('AMPED-07D payment reconciliation', () => {
 
       hoisted.verification = () => ({ orders: service, verifier });
       hoisted.maintenance = () => service;
+      hoisted.discrepancies = () => ({ store: createD1DiscrepancyStore(db), verifier });
 
       const summary = await runScheduledTasks(tick);
 
@@ -709,7 +720,10 @@ describe('AMPED-07D payment reconciliation', () => {
         const sql = readFileSync(join(root, 'migrations', name), 'utf8');
         expect(sql).not.toMatch(/processed_reconciliations/i);
       }
-      expect(migrations.filter((n) => Number(n.slice(0, 4)) > 12)).toEqual([]);
+      // No reconciliation-specific correctness table was invented; the order
+      // transition remains authoritative. (AMPED-07D2-2's 0013 adds
+      // discrepancy storage, which is a different fact entirely.)
+      expect(migrations.some((n) => /reconcil/i.test(n))).toBe(false);
     });
   });
 });

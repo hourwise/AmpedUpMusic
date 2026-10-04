@@ -25,23 +25,54 @@
  * therefore allowed to be skipped, never to fail the run.
  */
 
-import { getPaymentReconciliation, getReservationMaintenance } from '@/services/index.ts';
+import {
+  getPaymentDiscrepancyDetection,
+  getPaymentReconciliation,
+  getReservationMaintenance,
+} from '@/services/index.ts';
 import {
   reconcileSumUpPayments,
   type ReconciliationSummary,
 } from '@/services/payments/reconciliation.ts';
+import {
+  detectPaymentDiscrepancies,
+  type DiscrepancyDetectionSummary,
+} from '@/services/payments/discrepancy-detection.ts';
 import { PaymentConfigurationError } from '@/services/payments/sumup/types.ts';
 
 export interface ScheduledTaskSummary {
   /** Null when SumUp is not configured in this runtime. */
   reconciliation: ReconciliationSummary | null;
   expired: number;
+  /** Null when SumUp is not configured in this runtime. */
+  discrepancies: DiscrepancyDetectionSummary | null;
 }
 
 export async function runScheduledTasks(now: Date = new Date()): Promise<ScheduledTaskSummary> {
+  // 1. Rescue payments whose hold is still live. First, always.
   const reconciliation = await reconcileIfConfigured(now);
+  // 2. Bookkeeping for holds that have run out.
   const { expired } = await getReservationMaintenance().expireDueReservations(now);
-  return { reconciliation, expired };
+  // 3. Record money we can no longer attach to an order.
+  //
+  //    Last by preference, not by necessity. The expiry boundary is the
+  //    timestamp itself, not the sweep, so detection sees the same lapsed
+  //    orders either way - running it after the sweep merely means the rows
+  //    it records already read `expired`, which is tidier for an operator.
+  //    A test pins that the ordering does not change the outcome.
+  const discrepancies = await detectIfConfigured(now);
+  return { reconciliation, expired, discrepancies };
+}
+
+async function detectIfConfigured(now: Date): Promise<DiscrepancyDetectionSummary | null> {
+  let seam: ReturnType<typeof getPaymentDiscrepancyDetection>;
+  try {
+    seam = getPaymentDiscrepancyDetection();
+  } catch (error) {
+    if (error instanceof PaymentConfigurationError) return null;
+    throw error;
+  }
+  return detectPaymentDiscrepancies({ store: seam.store, verifier: seam.verifier, now: () => now });
 }
 
 async function reconcileIfConfigured(now: Date): Promise<ReconciliationSummary | null> {

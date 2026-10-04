@@ -41,15 +41,56 @@ export type CorrelationFailure =
   | 'merchant-mismatch'
   | 'no-successful-transaction';
 
+/**
+ * Authenticated facts about a retrieved checkout (AMPED-07D2-2).
+ *
+ * Verification exists to answer one question - may this be credited? - and so
+ * it collapses everything else. Discrepancy detection needs a different
+ * question answered: does SumUp appear to be HOLDING money we cannot credit?
+ * A bare `mismatch` reason cannot say, because "wrong amount" and "wrong
+ * amount AND a completed payment" are very different financial situations.
+ *
+ * This carries only what an operator needs to understand the mismatch. There
+ * is deliberately no provider body, no card data and no customer detail here,
+ * and nothing in it is eligible to reach `applyVerifiedPayment` - only the
+ * `paid` outcome's `verified` is.
+ */
+export interface ProviderPaymentEvidence {
+  /** The checkout status SumUp reported, verbatim. */
+  status: string;
+  /** Exact integer pence, or null when SumUp's amount was unusable. */
+  amountInPence: number | null;
+  /** Set only when a SUCCESSFUL transaction exists. The money signal. */
+  transactionId: string | null;
+  /** The successful transaction's own timestamp, when SumUp supplies one. */
+  paidAt: string | null;
+}
+
 export type VerificationOutcome =
   /** Fully correlated. Safe to apply. */
-  | { kind: 'paid'; verified: VerifiedPayment; orderReference: string }
+  | {
+      kind: 'paid';
+      verified: VerifiedPayment;
+      orderReference: string;
+      evidence: ProviderPaymentEvidence;
+    }
   /** Provider spoke, but the payment has not succeeded. Nothing to do. */
-  | { kind: 'not-paid'; status: string; orderReference: string }
+  | {
+      kind: 'not-paid';
+      status: string;
+      orderReference: string;
+      evidence: ProviderPaymentEvidence;
+    }
   /** No local order holds this checkout id. */
   | { kind: 'unknown-checkout' }
   /** Provider said PAID but the data does not match our order. */
-  | { kind: 'mismatch'; reason: CorrelationFailure; orderReference: string; retryable: boolean }
+  | {
+      kind: 'mismatch';
+      reason: CorrelationFailure;
+      orderReference: string;
+      retryable: boolean;
+      evidence: ProviderPaymentEvidence;
+    }
   /** We could not reach or parse SumUp. Nothing was decided. */
   | { kind: 'retrieval-failed'; retryable: true };
 
@@ -115,57 +156,64 @@ export function correlateCheckout(
   expectedMerchantCode: string,
   now: () => Date,
 ): VerificationOutcome {
+  // Gathered once, up front, and attached to every outcome. Collecting the
+  // authenticated facts before branching is what lets discrepancy detection
+  // tell "wrong amount" from "wrong amount and SumUp took the money".
+  const transaction = successfulTransaction(payload);
+  const evidence: ProviderPaymentEvidence = {
+    status: text(payload.status) ?? 'UNKNOWN',
+    amountInPence: majorUnitsToPence(payload.amount),
+    transactionId: transaction?.id ?? null,
+    paidAt: transaction?.timestamp ?? null,
+  };
+
   const status = text(payload.status);
   if (!status) {
-    return {
-      kind: 'mismatch',
-      reason: 'no-successful-transaction',
-      orderReference: local.reference,
-      retryable: false,
-    };
+    return mismatch('no-successful-transaction', local, false, evidence);
   }
 
   if (status !== 'PAID') {
-    return { kind: 'not-paid', status, orderReference: local.reference };
+    return { kind: 'not-paid', status, orderReference: local.reference, evidence };
   }
 
   // 1. The checkout SumUp described is the one we stored on this order.
   if (text(payload.id) !== local.paymentReference) {
-    return mismatch('checkout-id-mismatch', local, false);
+    return mismatch('checkout-id-mismatch', local, false, evidence);
   }
 
   // 2. It is OUR order's reference, not another merchant's or another order's.
   //    This is the check that stops a real payment for checkout X being
   //    replayed at order Y.
   if (text(payload.checkout_reference) !== local.reference) {
-    return mismatch('reference-mismatch', local, false);
+    return mismatch('reference-mismatch', local, false, evidence);
   }
 
   // 3. Exact money, by integer pence.
-  const pence = majorUnitsToPence(payload.amount);
-  if (pence === null) return mismatch('amount-malformed', local, false);
-  if (pence !== local.totalInPence) return mismatch('amount-mismatch', local, false);
+  if (evidence.amountInPence === null) return mismatch('amount-malformed', local, false, evidence);
+  if (evidence.amountInPence !== local.totalInPence) {
+    return mismatch('amount-mismatch', local, false, evidence);
+  }
 
   // 4. Currency. The order total is pence sterling by construction.
-  if (text(payload.currency) !== 'GBP') return mismatch('currency-mismatch', local, false);
+  if (text(payload.currency) !== 'GBP') return mismatch('currency-mismatch', local, false, evidence);
 
   // 5. The money reached OUR merchant account.
   if (text(payload.merchant_code) !== expectedMerchantCode) {
-    return mismatch('merchant-mismatch', local, false);
+    return mismatch('merchant-mismatch', local, false, evidence);
   }
 
   // 6. A real completed transaction, supplying the identity we deduplicate on.
-  const transaction = successfulTransaction(payload);
   if (!transaction) {
     // PAID with no SUCCESSFUL transaction yet is the one failure that can
     // plausibly fix itself: the checkout may have flipped status a moment
     // before its transaction list settled. Worth another delivery.
-    return mismatch('no-successful-transaction', local, true);
+    return mismatch('no-successful-transaction', local, true, evidence);
   }
 
   return {
     kind: 'paid',
     orderReference: local.reference,
+    evidence,
     verified: {
       orderId: local.orderId,
       checkoutId: local.paymentReference,
@@ -182,8 +230,9 @@ function mismatch(
   reason: CorrelationFailure,
   local: PaymentCorrelationSnapshot,
   retryable: boolean,
+  evidence: ProviderPaymentEvidence,
 ): VerificationOutcome {
-  return { kind: 'mismatch', reason, orderReference: local.reference, retryable };
+  return { kind: 'mismatch', reason, orderReference: local.reference, retryable, evidence };
 }
 
 export interface SumUpPaymentVerifier {
