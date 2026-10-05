@@ -373,6 +373,23 @@ describe('AMPED-07C1 webhook verification', () => {
       expect(await ticketCount()).toBe(ticketsAtStart);
     });
 
+    it('stores a SumUp nanosecond transaction timestamp in D1 millisecond form', async () => {
+      const { orderId, reference, checkoutId } = await reservedOrder();
+      wireRoute([() => jsonResponse(paidCheckout(checkoutId, reference, {
+        transactions: [{
+          id: `txn_${checkoutId}`,
+          status: 'SUCCESSFUL',
+          timestamp: '2026-10-04T09:05:00.52448389Z',
+        }],
+      }))]);
+
+      const response = await deliver(notification(checkoutId));
+      expect(response.status).toBe(204);
+      expect((await orderRow(orderId))?.paid_at).toBe('2026-10-04T09:05:00.524Z');
+      expect(await countAudits(orderId, 'order.paid')).toBe(1);
+      expect(await countObservations(`sumup_txn:txn_${checkoutId}`)).toBe(1);
+    });
+
     it.each([
       ['PENDING', 'PENDING'],
       ['FAILED', 'FAILED'],

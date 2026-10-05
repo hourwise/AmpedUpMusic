@@ -500,6 +500,11 @@ class D1OrderMutations implements OrderMutationService {
       return { outcome: 'not-applicable', orderId: verified.orderId, status: order.status };
     }
 
+    // SumUp can report fractional seconds beyond millisecond precision. D1's
+    // timestamp CHECK requires the canonical millisecond ISO form. Preserve
+    // the provider's instant while normalising it before the atomic write.
+    // An invalid provider timestamp throws before any payment state changes.
+    const paidAt = new Date(verified.paidAt).toISOString();
     const at = this.stamp();
     const reservationFloor = this.now().toISOString();
     const observationKey = `${verified.provider}_txn:${verified.transactionId}`;
@@ -532,7 +537,7 @@ class D1OrderMutations implements OrderMutationService {
           "update orders set status = 'paid', paid_at = ?1, updated_at = ?2 " +
             "where id = ?3 and status = 'awaiting_payment' and reservation_expires_at > ?4",
         )
-        .bind(verified.paidAt, at, verified.orderId, reservationFloor),
+        .bind(paidAt, at, verified.orderId, reservationFloor),
       this.db
         .prepare(
           'insert into audit_log (id, actor_email, action, entity_type, entity_id, summary, occurred_at) ' +
@@ -570,7 +575,7 @@ class D1OrderMutations implements OrderMutationService {
       return { outcome: 'not-applicable', orderId: verified.orderId, status: current.status };
     }
 
-    return { outcome: 'applied', orderId: verified.orderId, paidAt: verified.paidAt };
+    return { outcome: 'applied', orderId: verified.orderId, paidAt };
   }
 
   async findOrderByPaymentReference(
