@@ -208,7 +208,8 @@ export const INSERT_ORDER = statement<OrderRow>(`
   insert into orders (
     id, reference, event_id, customer_name, customer_email, customer_phone,
     status, total_in_pence, fee_in_pence, payment_reference, payment_provider,
-    paid_at, reservation_expires_at, marketing_opt_in, created_at, updated_at
+    paid_at, reservation_expires_at, marketing_opt_in, created_at, updated_at,
+    tickets_fulfilled_at
   )
   select
     json_extract(value, '$.id'),
@@ -226,7 +227,8 @@ export const INSERT_ORDER = statement<OrderRow>(`
     json_extract(value, '$.reservation_expires_at'),
     json_extract(value, '$.marketing_opt_in'),
     json_extract(value, '$.created_at'),
-    json_extract(value, '$.updated_at')
+    json_extract(value, '$.updated_at'),
+    json_extract(value, '$.tickets_fulfilled_at')
   from json_each(?1)
 `);
 
@@ -246,7 +248,8 @@ export const INSERT_ORDER_ITEM = statement<OrderItemRow>(`
 
 export const INSERT_TICKET = statement<TicketRow>(`
   insert into tickets (
-    id, order_id, event_id, ticket_type_id, reference, token_hash, status,
+    id, order_id, event_id, ticket_type_id, order_item_id, unit_ordinal,
+    reference, token_hash, status,
     attendee_name, is_guest_list, issued_at, checked_in_at
   )
   select
@@ -254,6 +257,8 @@ export const INSERT_TICKET = statement<TicketRow>(`
     json_extract(value, '$.order_id'),
     json_extract(value, '$.event_id'),
     json_extract(value, '$.ticket_type_id'),
+    json_extract(value, '$.order_item_id'),
+    json_extract(value, '$.unit_ordinal'),
     json_extract(value, '$.reference'),
     json_extract(value, '$.token_hash'),
     json_extract(value, '$.status'),

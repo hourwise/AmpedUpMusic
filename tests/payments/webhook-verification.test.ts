@@ -225,7 +225,13 @@ describe('AMPED-07C1 webhook verification', () => {
       now: () => FIXED_NOW,
     });
 
-    hoisted.provide = () => ({ orders: service, verifier });
+    // Keep 07C assertions focused on payment. 08A's real-D1 suite exercises
+    // the fulfilment seam, including concurrent webhook/recovery calls.
+    hoisted.provide = () => ({
+      orders: service,
+      verifier,
+      fulfilment: { issuePaidOrder: async () => ({ outcome: 'complete', issued: 0 }) },
+    });
     return { retrievals: () => calls };
   }
 

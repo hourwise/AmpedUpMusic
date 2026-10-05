@@ -1228,6 +1228,13 @@ authorise live SumUp payments, ticket issuance, or email delivery.
 
 ### AMPED-08A — Ticket issuance
 
+**Implementation note (08A):** The accepted 08A slice supersedes the older
+payment-coupled requirement below. The existing verified `paid` transition is
+the sole payment writer; ticket fulfilment runs afterward and a bounded
+five-minute recovery pass finds paid orders left incomplete by a crash. D1
+enforces one ticket per purchased order-item unit. QR credentials and delivery
+remain later slices. See [`AMPED-08A-CERTIFICATION.md`](AMPED-08A-CERTIFICATION.md).
+
 **Objective** — A confirmed payment issues exactly one ticket per admission, exactly once.
 
 **Preconditions** — AMPED-07C merged.

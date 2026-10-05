@@ -63,6 +63,9 @@ vi.mock('@/services/index.ts', () => ({
     if (!hoisted.discrepancies) throw new PaymentConfigurationError();
     return hoisted.discrepancies();
   },
+  getTicketIssuance: () => ({
+    recoverPending: async () => ({ examined: 0, issued: 0, completed: 0, failures: 0 }),
+  }),
 }));
 
 const { POST } = await import('../../src/pages/api/webhooks/sumup.ts');
@@ -248,7 +251,11 @@ describe('AMPED-07D payment reconciliation', () => {
       now: () => FIXED_NOW,
     });
 
-    hoisted.verification = () => ({ orders: service, verifier });
+    hoisted.verification = () => ({
+      orders: service,
+      verifier,
+      fulfilment: { issuePaidOrder: async () => ({ outcome: 'complete', issued: 0 }) },
+    });
     return { verifier, orders: service, retrievals: () => retrievals };
   }
 
@@ -625,7 +632,11 @@ describe('AMPED-07D payment reconciliation', () => {
         now: () => tick,
       });
 
-      hoisted.verification = () => ({ orders: service, verifier });
+      hoisted.verification = () => ({
+        orders: service,
+        verifier,
+        fulfilment: { issuePaidOrder: async () => ({ outcome: 'complete', issued: 0 }) },
+      });
       hoisted.maintenance = () => service;
       hoisted.discrepancies = () => ({ store: createD1DiscrepancyStore(db), verifier });
 

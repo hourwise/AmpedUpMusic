@@ -712,9 +712,10 @@ describe('AMPED-07B hosted checkout', () => {
     const page = readFileSync(join(root, 'src', 'pages', 'checkout', 'return.astro'), 'utf8');
     const body = page.split('---').slice(2).join('---');
 
-    it('says confirmation is pending and tickets are not issued', () => {
+    it('says confirmation is pending and does not promise delivery here', () => {
       expect(body).toMatch(/being confirmed/i);
-      expect(body).toMatch(/not been issued yet/i);
+      expect(body).toMatch(/Tickets are issued after our servers confirm payment/i);
+      expect(body).toMatch(/does not display\s+tickets or a QR code/i);
     });
 
     it('never claims the payment succeeded', () => {

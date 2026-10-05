@@ -25,9 +25,9 @@
  *    reach SumUp, or the configuration needed to reach it is missing. Those
  *    are the cases where being told again genuinely helps.
  *
- * It never issues tickets, never sends email, never touches inventory, and is
- * not the thing that decides an order is paid - `applyVerifiedPayment` is, and
- * AMPED-07D's reconciliation will call exactly the same primitive.
+ * It never sends email or touches inventory. `applyVerifiedPayment` alone
+ * decides paid status. After that succeeds, a separate 08A service attempts
+ * durable ticket fulfilment; the scheduled recovery pass covers a crash gap.
  */
 
 import type { APIRoute } from 'astro';
@@ -140,6 +140,8 @@ export const POST: APIRoute = async ({ request }) => {
           order: outcome.orderReference,
           status: applied.status,
         });
+      } else {
+        await verification.fulfilment.issuePaidOrder(applied.orderId);
       }
       return acknowledge();
     }

@@ -185,6 +185,7 @@ export interface OrderRow {
   payment_reference: string | null;
   payment_provider: 'sumup' | 'mock' | 'cash' | 'comp' | null;
   paid_at: IsoDateTime | null;
+  tickets_fulfilled_at: IsoDateTime | null;
   reservation_expires_at: IsoDateTime | null;
   marketing_opt_in: SqliteBool;
   created_at: IsoDateTime;
@@ -205,6 +206,8 @@ export interface TicketRow {
   order_id: string;
   event_id: string;
   ticket_type_id: string;
+  order_item_id: string | null;
+  unit_ordinal: number | null;
   reference: string;
   token_hash: string | null;
   status: 'issued' | 'checked_in' | 'void' | 'refunded';

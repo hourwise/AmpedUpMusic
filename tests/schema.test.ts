@@ -147,6 +147,7 @@ describe('migration runner', () => {
       '0011',
       '0012',
       '0013',
+      '0014',
     ]);
     expect(result.alreadyApplied).toEqual([]);
 
@@ -162,7 +163,7 @@ describe('migration runner', () => {
       )
       .all<{ id: string; name: string; checksum: string; applied_at: string }>();
 
-    expect(applied.length).toBe(13);
+    expect(applied.length).toBe(14);
     expect(withChecksums.results.map((row) => row.name)).toEqual(
       loadMigrations().map((migration) => migration.name),
     );
@@ -178,7 +179,7 @@ describe('migration runner', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(13);
+    expect(second.alreadyApplied).toHaveLength(14);
 
     // Not merely "no error": the ledger must be untouched, timestamps and all.
     expect(await readAppliedMigrations(db)).toEqual(before);
@@ -188,7 +189,7 @@ describe('migration runner', () => {
     const ids = loadMigrations().map((migration) => migration.id);
     expect(ids).toEqual([...ids].sort());
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(13);
+    expect(ids).toHaveLength(14);
   });
 
   it('refuses to run if a migration that has already been applied is edited', async () => {
@@ -248,7 +249,7 @@ describe('migration runner', () => {
 
     const rebuilt = await migrate(db);
 
-    expect(rebuilt.applied).toHaveLength(13);
+    expect(rebuilt.applied).toHaveLength(14);
     expect(await schemaObjects(db)).toEqual(expected);
   });
 });
@@ -1074,7 +1075,7 @@ describe('integrity constraints', () => {
     const ledger = await db
       .prepare('select count(*) as n from schema_migrations')
       .first<{ n: number }>();
-    expect(ledger?.n).toBe(13);
+    expect(ledger?.n).toBe(14);
   });
 });
 
@@ -1126,11 +1127,12 @@ describe('indexes', () => {
 
   it('indexes the columns later slices read, and nothing speculative', async () => {
     const indexes = (await namedIndexes(db)).map((row) => row.name);
-    // 26 named indexes plus the ledger's primary key index. The list is
+    // Named indexes plus the ledger's primary key index. The list is
     // asserted in full so that a speculative index is a deliberate edit.
     expect(indexes).toEqual([
       'artists_slug_unique',
       'audit_log_occurred_at_idx',
+      'audit_order_fulfilled_unique',
       'checkins_event_id_idx',
       'checkins_ticket_id_unique',
       'enquiries_status_received_at_idx',
@@ -1147,6 +1149,7 @@ describe('indexes', () => {
       'orders_payment_reference_unique',
       'orders_reference_unique',
       'orders_status_reservation_expires_at_idx',
+      'orders_unfulfilled_paid_idx',
       'payment_discrepancies_identity_unique',
       'payment_discrepancies_order_checkout_unique',
       'payment_discrepancies_state_detected_at_idx',
@@ -1157,6 +1160,7 @@ describe('indexes', () => {
       'ticket_types_event_id_idx',
       'tickets_event_id_idx',
       'tickets_order_id_idx',
+      'tickets_purchased_unit_unique',
       'tickets_reference_unique',
       'tickets_ticket_type_status_idx',
       'venues_slug_unique',

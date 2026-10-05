@@ -58,6 +58,7 @@ import {
   type SocialMutationService,
 } from './d1/social.ts';
 import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
+import { createD1TicketIssuance, type TicketIssuanceService } from './tickets/issuance.ts';
 import { createD1DiscrepancyStore, type DiscrepancyStore } from './payments/discrepancies.ts';
 import { createSumUpClient } from './payments/sumup/client.ts';
 import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
@@ -171,6 +172,7 @@ let cachedEntityMutations: {
 let cachedMediaMutations: MediaMutationService | null = null;
 let cachedSocial: (SocialMutationService & SocialService) | null = null;
 let cachedOrderMutations: OrderMutationService | null = null;
+let cachedTicketIssuance: TicketIssuanceService | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
 let cachedVerifier: SumUpPaymentVerifier | null = null;
 let cachedDiscrepancyStore: DiscrepancyStore | null = null;
@@ -302,6 +304,15 @@ function orderMutations(): OrderMutationService {
   return cachedOrderMutations;
 }
 
+/** Paid-order fulfilment has no payment-provider dependency. */
+export function getTicketIssuance(): TicketIssuanceService {
+  if (!database) {
+    throw new Error('The D1 binding "DB" is not available for ticket fulfilment.');
+  }
+  cachedTicketIssuance ??= createD1TicketIssuance(database);
+  return cachedTicketIssuance;
+}
+
 /**
  * The checkout seam: the order state machine plus the REAL payment provider.
  *
@@ -341,6 +352,7 @@ export function getCheckout(): {
 export function getSumUpVerification(): {
   orders: OrderMutationService;
   verifier: SumUpPaymentVerifier;
+  fulfilment: TicketIssuanceService;
 } {
   const orders = orderMutations();
   if (!sumUpConfig) throw new PaymentConfigurationError();
@@ -349,7 +361,7 @@ export function getSumUpVerification(): {
     merchantCode: sumUpConfig.merchantCode,
     orders,
   });
-  return { orders, verifier: cachedVerifier };
+  return { orders, verifier: cachedVerifier, fulfilment: getTicketIssuance() };
 }
 
 /**
@@ -366,6 +378,7 @@ export function getSumUpVerification(): {
 export function getPaymentReconciliation(): {
   orders: OrderMutationService;
   verifier: SumUpPaymentVerifier;
+  fulfilment: TicketIssuanceService;
 } {
   return getSumUpVerification();
 }

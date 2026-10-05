@@ -33,6 +33,7 @@ import type {
   OrderMutationService,
   ReconciliationCandidate,
 } from '../orders/service.ts';
+import type { TicketIssuanceService } from '../tickets/issuance.ts';
 import type { SumUpPaymentVerifier } from './sumup/verification.ts';
 
 /**
@@ -75,11 +76,14 @@ export interface ReconciliationSummary {
    * first. A real money discrepancy for an operator, never auto-resolved.
    */
   discrepancies: number;
+  /** Payment was recorded, but immediate ticket fulfilment needs recovery. */
+  fulfilmentFailures: number;
 }
 
 export interface ReconciliationOptions {
   orders: OrderMutationService;
   verifier: SumUpPaymentVerifier;
+  fulfilment?: TicketIssuanceService;
   now?: () => Date;
   batchSize?: number;
   concurrency?: number;
@@ -95,6 +99,7 @@ const emptySummary = (): ReconciliationSummary => ({
   retrievalFailures: 0,
   verificationFailures: 0,
   discrepancies: 0,
+  fulfilmentFailures: 0,
 });
 
 /** Run `worker` over `items`, at most `limit` at a time. */
@@ -161,6 +166,16 @@ export async function reconcileSumUpPayments(
               order: candidate.reference,
               status: applied.status,
             });
+          }
+          if (applied.outcome !== 'not-applicable' && options.fulfilment) {
+            try {
+              await options.fulfilment.issuePaidOrder(applied.orderId);
+            } catch (error) {
+              summary.fulfilmentFailures += 1;
+              log('ticket-fulfilment-failed', {
+                kind: error instanceof Error ? error.name : 'unknown',
+              });
+            }
           }
           return;
         }

@@ -132,8 +132,8 @@ ${COMPOUND_STATEMENT_END}`;
 
   it('leaves the accepted migrations statement counts unchanged', () => {
     const files = readdirSync(join(root, 'migrations')).filter((name) => name.endsWith('.sql')).sort();
-    expect(files).toHaveLength(13);
-    const counts = files.map((name) =>
+    expect(files).toHaveLength(14);
+    const counts = files.filter((name) => name < '0014_').map((name) =>
       splitStatements(readFileSync(join(root, 'migrations', name), 'utf8')).length,
     );
     // The counts the accepted runner reports for 0001..0013 (0011 is the

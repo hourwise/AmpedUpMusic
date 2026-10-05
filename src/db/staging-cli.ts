@@ -19,7 +19,7 @@
  *
  * WHAT THIS DOES INSTEAD
  * It provides TRANSPORT ONLY: a minimal `D1Database`-shaped shim over
- * `wrangler d1 execute ampedup-staging --remote`, handed to the
+ * `wrangler d1 execute DB --env staging --remote`, handed to the
  * SAME `migrate()` the local scripts and the test suite use. Every decision
  * that matters - which migrations exist, their order, their checksums, what
  * the ledger records - stays in `src/db/migrations.ts`, untouched. The target
@@ -51,7 +51,7 @@ import { PROJECT_ROOT, listTables } from './local.ts';
 import { loadMigrations, migrate, readAppliedMigrations } from './migrations.ts';
 
 /** The only database this tool will ever write to. No override exists. */
-const STAGING_DATABASE = 'ampedup-staging';
+const STAGING_BINDING = 'DB';
 const MIGRATIONS_DIR = join(PROJECT_ROOT, 'migrations');
 const WRANGLER_BIN = join(PROJECT_ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 
@@ -68,7 +68,7 @@ function execute(args: string[]): D1Row[] {
   try {
     output = execFileSync(
       process.execPath,
-      [WRANGLER_BIN, 'd1', 'execute', STAGING_DATABASE, '--remote', '--json', ...args],
+      [WRANGLER_BIN, 'd1', 'execute', STAGING_BINDING, '--env', 'staging', '--remote', '--json', ...args],
       { cwd: PROJECT_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] },
     );
   } catch (error) {
@@ -248,7 +248,7 @@ async function runInspect(): Promise<void> {
 const [command, argument] = process.argv.slice(2);
 
 const USAGE = `
-Amped Up STAGING database (remote, "${STAGING_DATABASE}" only)
+Amped Up STAGING database (remote, "${STAGING_BINDING}" in staging only)
 
   node src/db/staging-cli.ts migrate [0011]   apply migrations, optionally up to a prefix
   node src/db/staging-cli.ts check-duplicates run the mandatory 0012 pre-check

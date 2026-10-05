@@ -91,6 +91,9 @@ describe('AMPED-06C oversell protection', () => {
   }
 
   async function cleanup(probe: Probe): Promise<void> {
+    // Test fixture teardown: paid snapshots are immutable while paid.
+    await db.prepare("update orders set status = 'expired' where event_id = ? and status = 'paid'")
+      .bind(probe.eventId).run();
     await db.prepare('delete from order_items where order_id in (select id from orders where event_id = ?)').bind(probe.eventId).run();
     await db.prepare('delete from orders where event_id = ?').bind(probe.eventId).run();
     await db.prepare('delete from ticket_types where event_id = ?').bind(probe.eventId).run();

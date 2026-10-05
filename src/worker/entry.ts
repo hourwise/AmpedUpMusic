@@ -33,6 +33,7 @@ export default {
         reconciliation: summary.reconciliation,
         expired: summary.expired,
         discrepancies: summary.discrepancies,
+        fulfilment: summary.fulfilment,
       }));
     }));
   },

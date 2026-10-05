@@ -29,6 +29,7 @@ import {
   getPaymentDiscrepancyDetection,
   getPaymentReconciliation,
   getReservationMaintenance,
+  getTicketIssuance,
 } from '@/services/index.ts';
 import {
   reconcileSumUpPayments,
@@ -39,6 +40,7 @@ import {
   type DiscrepancyDetectionSummary,
 } from '@/services/payments/discrepancy-detection.ts';
 import { PaymentConfigurationError } from '@/services/payments/sumup/types.ts';
+import type { FulfilmentRecoverySummary } from '@/services/tickets/issuance.ts';
 
 export interface ScheduledTaskSummary {
   /** Null when SumUp is not configured in this runtime. */
@@ -46,6 +48,7 @@ export interface ScheduledTaskSummary {
   expired: number;
   /** Null when SumUp is not configured in this runtime. */
   discrepancies: DiscrepancyDetectionSummary | null;
+  fulfilment: FulfilmentRecoverySummary;
 }
 
 export async function runScheduledTasks(now: Date = new Date()): Promise<ScheduledTaskSummary> {
@@ -61,7 +64,10 @@ export async function runScheduledTasks(now: Date = new Date()): Promise<Schedul
   //    it records already read `expired`, which is tidier for an operator.
   //    A test pins that the ordering does not change the outcome.
   const discrepancies = await detectIfConfigured(now);
-  return { reconciliation, expired, discrepancies };
+  // 4. Recover the crash window after paid state was recorded. This pass is
+  // provider-independent and scans only the indexed incomplete paid queue.
+  const fulfilment = await getTicketIssuance().recoverPending();
+  return { reconciliation, expired, discrepancies, fulfilment };
 }
 
 async function detectIfConfigured(now: Date): Promise<DiscrepancyDetectionSummary | null> {
@@ -87,6 +93,7 @@ async function reconcileIfConfigured(now: Date): Promise<ReconciliationSummary |
   return reconcileSumUpPayments({
     orders: seam.orders,
     verifier: seam.verifier,
+    fulfilment: seam.fulfilment,
     now: () => now,
   });
 }
