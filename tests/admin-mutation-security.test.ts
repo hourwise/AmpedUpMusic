@@ -402,10 +402,11 @@ describe('AMPED-CF-00A pre-staging hygiene', () => {
       expect(wrangler).not.toMatch(/"directory":\s*"\.\/dist"/);
     });
 
-    it('declares a staging environment with cron explicitly disabled', () => {
+    it('declares a staging environment with the certified five-minute cron', () => {
       expect(wrangler).toContain('"ampedup-staging"');
       expect(wrangler).toContain('"AMPED_ENV": "staging"');
-      expect(wrangler).toMatch(/"triggers":\s*\{\s*"crons":\s*\[\s*\]/);
+      const staging = wrangler.split('"staging": {')[1];
+      expect(staging).toMatch(/"triggers":\s*\{\s*"crons":\s*\["\*\/5 \* \* \* \*"\]/);
     });
 
     it('keeps the default environment cron unchanged', () => {
