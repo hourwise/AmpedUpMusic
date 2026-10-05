@@ -85,3 +85,67 @@ capacity one, committed one, reserved zero, and available zero. There were
 zero discrepancies and zero issued tickets. The paid order is no longer
 eligible for reservation expiry to release its unit. The earlier 500 retries
 had left no partial paid transition or duplicate observation.
+
+## Staging cron deployment and security
+
+After webhook certification, commit
+`3bc4857915dece62568d41c0893849a4fc6d64bc` enabled the staging
+`*/5 * * * *` trigger. The build selected `CLOUDFLARE_ENV=staging` and
+`AMPED_ENV=staging`. Its generated config named staging D1 and R2, the exact
+staging webhook URL, no SESSION KV, and the five-minute cron. The Wrangler dry
+run reported 101 modules and 67 assets with staging bindings. A local
+`.dev.vars` copy produced during build was removed from `dist/server` before
+deployment; the remaining 164 generated files and 103 dry-run files contained
+none of the two sandbox secret values. `--keep-vars` preserved the staging
+Access verifier settings. The cron-enabled Worker version is
+`b6edcce1-47a0-4a1c-a8b8-2473dde72962`.
+
+Post-deployment anonymous requests returned 302 for `/`, `/admin`,
+`/api/admin/gigs`, and `/api/webhooks/sumup/child`. A malformed `{}` POST to
+the exact `/api/webhooks/sumup` returned 204. The bypass remained exact-path
+only. Repeated browser visits to the staging `/checkout/return` page created
+no additional order or payment and advised the customer not to pay again.
+That page intentionally does not identify an order or assert that payment
+succeeded: only the authenticated server-side retrieval and D1 state did so.
+
+After the original reservation expiry, direct D1 inspection still showed the
+order `paid`, one paid audit, one webhook observation, zero discrepancies, and
+zero tickets. No stock was released from the paid order.
+
+## Scheduled runtime result
+
+The first observed genuine Cloudflare scheduled event was
+`2026-10-05T20:35:22.000Z`, cron `*/5 * * * *`, Worker version
+`b6edcce1-47a0-4a1c-a8b8-2473dde72962`, outcome `ok`. The scheduled
+handler's count-only log reported reconciliation `examined=0, paid=0`, expiry
+`expired=0`, and discrepancy detection `examined=0, created=0`; retrieval and
+verification failures were zero. This proves all three passes ran in the
+hosted scheduled runtime. The reconciler made no provider retrieval for the
+already-paid order. Direct D1 inspection after the tick found the same one
+paid order, one paid audit, one transaction observation, zero discrepancies,
+zero tickets, committed one and reserved zero. There was no state regression
+or duplicate write.
+
+The hosted lost-webhook scenario was **not artificially induced**. Suppressing
+only a second checkout's SumUp notification was not available without
+interfering with the working exact public webhook route. The accepted local
+real-D1 lost-webhook and concurrency tests cover recovery; this hosted run
+proved authenticated provider retrieval in the webhook path and the scheduled
+runtime's reconciliation pass, without manufacturing a failure. No second
+checkout was created. The existing 30-minute reservation policy and strict
+expiry semantics were unchanged, and the hosted tick exercised the expiry
+and discrepancy passes without altering clocks or fixtures.
+
+## CF-02 verification and boundaries
+
+- Full suite: 33 files, 783 tests passed. Astro typecheck: 190 files, zero
+  errors, warnings or hints. Staging build and Wrangler dry run passed. The
+  generated configuration and bundle were inspected and scanned as above.
+- SumUp calls: one sandbox checkout creation, one sandbox payment attempt and
+  success, one read-only authenticated checkout lookup for operator evidence,
+  and authenticated retrieval by the webhook verifier on the four genuine
+  provider deliveries. The scheduler examined no payable order and made no
+  provider retrieval on its observed tick.
+- Live-money calls: zero. Production resources touched: none. `main` was
+  unchanged. Ticket issuance, customer email, and live SumUp remain later
+  slices.
