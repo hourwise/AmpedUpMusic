@@ -23,6 +23,17 @@ export default {
 
   scheduled(controller: ScheduledController, _env: Env, ctx: ExecutionContext) {
     // The platform event time is the authoritative clock for the sweep.
-    ctx.waitUntil(runScheduledTasks(new Date(controller.scheduledTime)));
+    const scheduledAt = new Date(controller.scheduledTime);
+    ctx.waitUntil(runScheduledTasks(scheduledAt).then((summary) => {
+      // Counts only: enough to certify each hosted pass without logging an
+      // order reference, buyer detail, provider response or credential.
+      console.info(JSON.stringify({
+        at: 'amped-scheduled',
+        scheduledAt: scheduledAt.toISOString(),
+        reconciliation: summary.reconciliation,
+        expired: summary.expired,
+        discrepancies: summary.discrepancies,
+      }));
+    }));
   },
 } satisfies ExportedHandler<Env>;

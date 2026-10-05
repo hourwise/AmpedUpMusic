@@ -90,12 +90,9 @@
   // variables configured outside this file. A plain deploy removes them and
   // makes the origin-side admin verifier fail closed.
   //
-  // CRON IS DISABLED EXPLICITLY, NOT BY OMISSION. Leaving `triggers` out was
-  // tried first and the top-level five-minute cron came through into the
-  // staging config anyway. An empty array is what actually stops it. The
-  // intent: a fresh deployment must not start calling a payment provider on a
-  // timer. CF-02 owns payment/webhook certification and is the earliest slice
-  // that may consider enabling staging cron.
+  // CF-02 certified a genuine SumUp sandbox webhook with staging cron OFF.
+  // The five-minute trigger below was enabled only after that proof. Keep the
+  // trigger explicit: omitting it inherits the top-level cron.
   "env": {
     "staging": {
       "name": "ampedup-staging",
@@ -110,7 +107,7 @@
         "SUMUP_WEBHOOK_URL": "https://staging.ampedupmusicpromo.co.uk/api/webhooks/sumup"
       },
       "triggers": {
-        "crons": []
+        "crons": ["*/5 * * * *"]
       },
 
       // Created by AMPED-CF-01. A database id is configuration, not a

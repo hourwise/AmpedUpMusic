@@ -1216,6 +1216,14 @@ request origin, so an admin action on a second host could mint checkout URLs on 
 
 ---
 
+### AMPED-CF-02 — Hosted SumUp sandbox certification
+
+The staging-only hosted certification record is in
+[`AMPED-CF-02-CERTIFICATION.md`](AMPED-CF-02-CERTIFICATION.md). CF-02 does not
+authorise live SumUp payments, ticket issuance, or email delivery.
+
+---
+
 ## Phase 08 — Tickets and email
 
 ### AMPED-08A — Ticket issuance

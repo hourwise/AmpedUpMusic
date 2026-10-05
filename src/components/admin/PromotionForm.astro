@@ -719,6 +719,7 @@ const ticketRows = event?.ticketTypes.length
   const form = document.querySelector<HTMLFormElement>('[data-gig-form]');
   const feedback = document.querySelector<HTMLElement>('[data-feedback]');
   const eventId = form?.dataset.eventId ?? '';
+  const eventStatus = form?.dataset.eventStatus ?? 'draft';
 
   function say(message: string, tone: 'ok' | 'error') {
     if (!feedback) return;
@@ -806,7 +807,7 @@ const ticketRows = event?.ticketTypes.length
     const body = payload();
     if (eventId) {
       await send(`/api/admin/gigs/${encodeURIComponent(eventId)}`, 'PATCH', body);
-      say('Draft saved.', 'ok');
+      say(eventStatus === 'published' ? 'Changes saved.' : 'Draft saved.', 'ok');
       return eventId;
     }
     const created = await send('/api/admin/gigs', 'POST', body);
@@ -828,8 +829,9 @@ const ticketRows = event?.ticketTypes.length
     .querySelector('#publish-confirm [data-confirm-accept]')
     ?.addEventListener('click', async () => {
       try {
-        const id = eventId || (await saveDraft());
+        const id = await saveDraft();
         if (!id) throw new Error('Could not save the gig first.');
+        if (eventStatus === 'published') return;
         await send(`/api/admin/gigs/${encodeURIComponent(id)}/publish`, 'POST');
         if (!eventId) window.location.assign(`/admin/gigs/${id}`);
         else say('Published.', 'ok');
