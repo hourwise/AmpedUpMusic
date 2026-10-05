@@ -84,7 +84,11 @@
   // wrong environment. Both halves are required:
   //
   //   CLOUDFLARE_ENV=staging AMPED_ENV=staging npm run build
-  //   npx wrangler deploy --env staging
+  //   npx wrangler deploy --env staging --keep-vars
+  //
+  // `--keep-vars` preserves the staging Access issuer and admin AUD Worker
+  // variables configured outside this file. A plain deploy removes them and
+  // makes the origin-side admin verifier fail closed.
   //
   // CRON IS DISABLED EXPLICITLY, NOT BY OMISSION. Leaving `triggers` out was
   // tried first and the top-level five-minute cron came through into the
