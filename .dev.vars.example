@@ -23,10 +23,12 @@ SUMUP_MERCHANT_CODE=replace-with-development-merchant-code
 # callback that cannot work.
 SUMUP_WEBHOOK_URL=
 
-# AMPED-08C — transactional email provider (behind TicketEmailProvider interface)
+# AMPED-08C — transactional email provider (behind the provider-independent
+# email contract). AMPED-08C1 renders and queues only: it installs no key and
+# sends nothing. The Resend adapter and its key arrive with AMPED-08C2.
 EMAIL_PROVIDER=console
 RESEND_API_KEY=
-EMAIL_FROM="Amped Up Music Promotions <tickets@ampedupmusic.co.uk>"
+EMAIL_FROM="Amped Up Music Promotions <tickets@ampedupmusicpromo.co.uk>"
 
 # AMPED-10A — Cloudflare Turnstile (site key is public, secret key is not)
 PUBLIC_TURNSTILE_SITE_KEY=

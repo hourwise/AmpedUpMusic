@@ -76,6 +76,7 @@ const DROP_ALL_SQL: readonly string[] = [
   'drop table if exists payment_discrepancy_events',
   'drop table if exists payment_discrepancies',
   'drop table if exists processed_webhooks',
+  'drop table if exists email_deliveries',
   'drop table if exists audit_log',
   'drop table if exists mailing_list',
   'drop table if exists enquiries',
@@ -149,6 +150,7 @@ describe('migration runner', () => {
       '0013',
       '0014',
       '0015',
+      '0016',
     ]);
     expect(result.alreadyApplied).toEqual([]);
 
@@ -164,7 +166,7 @@ describe('migration runner', () => {
       )
       .all<{ id: string; name: string; checksum: string; applied_at: string }>();
 
-    expect(applied.length).toBe(15);
+    expect(applied.length).toBe(16);
     expect(withChecksums.results.map((row) => row.name)).toEqual(
       loadMigrations().map((migration) => migration.name),
     );
@@ -180,7 +182,7 @@ describe('migration runner', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(15);
+    expect(second.alreadyApplied).toHaveLength(16);
 
     // Not merely "no error": the ledger must be untouched, timestamps and all.
     expect(await readAppliedMigrations(db)).toEqual(before);
@@ -190,7 +192,7 @@ describe('migration runner', () => {
     const ids = loadMigrations().map((migration) => migration.id);
     expect(ids).toEqual([...ids].sort());
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(15);
+    expect(ids).toHaveLength(16);
   });
 
   it('refuses to run if a migration that has already been applied is edited', async () => {
@@ -250,7 +252,7 @@ describe('migration runner', () => {
 
     const rebuilt = await migrate(db);
 
-    expect(rebuilt.applied).toHaveLength(15);
+    expect(rebuilt.applied).toHaveLength(16);
     expect(await schemaObjects(db)).toEqual(expected);
   });
 });
@@ -1076,7 +1078,7 @@ describe('integrity constraints', () => {
     const ledger = await db
       .prepare('select count(*) as n from schema_migrations')
       .first<{ n: number }>();
-    expect(ledger?.n).toBe(15);
+    expect(ledger?.n).toBe(16);
   });
 });
 
@@ -1139,6 +1141,10 @@ describe('indexes', () => {
       'audit_ticket_checked_in_unique',
       'checkins_event_id_idx',
       'checkins_ticket_id_unique',
+      'email_deliveries_due_idx',
+      'email_deliveries_idempotency_unique',
+      'email_deliveries_lease_idx',
+      'email_deliveries_logical_unique',
       'enquiries_status_received_at_idx',
       'event_artists_artist_id_idx',
       'events_slug_unique',
@@ -1149,6 +1155,7 @@ describe('indexes', () => {
       'media_assets_storage_key_unique',
       'order_items_order_id_idx',
       'order_items_ticket_type_id_idx',
+      'orders_email_intent_missing_idx',
       'orders_event_id_idx',
       'orders_payment_reference_unique',
       'orders_reference_unique',

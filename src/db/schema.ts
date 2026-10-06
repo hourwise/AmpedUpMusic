@@ -273,6 +273,42 @@ export interface ProcessedWebhookRow {
   processed_at: IsoDateTime | null;
 }
 
+// --- 0016 email_deliveries --------------------------------------------------
+
+/**
+ * The durable ticket-email outbox row (AMPED-08C1).
+ *
+ * `id` is the local identity; `provider_message_id` is nullable evidence and
+ * is never a key. `payload` is the frozen, canonical JSON snapshot described
+ * in src/services/email/render.ts; `payload_hash` is SHA-256 of that exact
+ * text. Both are immutable after insertion (0016 trigger).
+ */
+export interface EmailDeliveryRow {
+  id: string;
+  order_id: string;
+  message_type: string;
+  version: number;
+  recipient: string;
+  state: 'pending' | 'claimed' | 'accepted' | 'retryable' | 'permanent_failure' | 'ambiguous';
+  attempt_count: number;
+  provider: string | null;
+  provider_message_id: string | null;
+  idempotency_key: string;
+  payload: string;
+  payload_hash: string;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+  last_attempt_at: IsoDateTime | null;
+  accepted_at: IsoDateTime | null;
+  next_retry_at: IsoDateTime | null;
+  claimed_at: IsoDateTime | null;
+  lease_expires_at: IsoDateTime | null;
+  claim_token: string | null;
+  last_error_class: 'retryable' | 'permanent_failure' | 'ambiguous' | 'lease_expired' | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+}
+
 /** Every table this schema owns, in migration order. Used by the tests. */
 export const V1_TABLES: readonly string[] = [
   'venues',
@@ -293,5 +329,7 @@ export const V1_TABLES: readonly string[] = [
   // AMPED-07D2-2 - durable financial exceptions.
   'payment_discrepancies',
   'payment_discrepancy_events',
+  // AMPED-08C1 - durable ticket-email outbox.
+  'email_deliveries',
   'schema_migrations',
 ];

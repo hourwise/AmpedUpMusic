@@ -69,6 +69,8 @@ export const ADMIN_NAV: readonly AdminNavItem[] = [
   // AMPED-07D2-3. Next to Orders because that is where an operator goes
   // when somebody says they have been charged and has no ticket.
   { label: 'Payments', href: '/admin/discrepancies', icon: 'receipt' },
+  // AMPED-08C1. Ticket-email delivery visibility; read-only until 08C2.
+  { label: 'Emails', href: '/admin/emails', icon: 'mail' },
   { label: 'Artists', href: '/admin/artists', icon: 'artist' },
   { label: 'Venues', href: '/admin/venues', icon: 'venue' },
   { label: 'Photos', href: '/admin/media', icon: 'photo' },

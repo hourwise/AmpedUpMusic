@@ -49,15 +49,16 @@ describe('AMPED-05C0 social featured ordering foundation', () => {
       '0013',
       '0014',
       '0015',
+      '0016',
     ]);
-    expect(applied[applied.length - 1]?.name).toBe('0015_ticket_credentials.sql');
+    expect(applied[applied.length - 1]?.name).toBe('0016_email_deliveries.sql');
   });
 
   it('is a no-op when run again', async () => {
     const before = await readAppliedMigrations(db);
     const second = await migrate(db);
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(15);
+    expect(second.alreadyApplied).toHaveLength(16);
     expect(await readAppliedMigrations(db)).toEqual(before);
   });
 

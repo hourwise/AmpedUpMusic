@@ -63,6 +63,9 @@ import { createD1TicketCredentials, type TicketCredentialService } from './ticke
 import { createTicketTokenService, type TicketTokenService } from './tickets/token.ts';
 import { createD1TicketCheckIn } from './tickets/check-in.ts';
 import { renderTicketQrSvg } from './tickets/qr.ts';
+import { createD1EmailDeliveries, type EmailDeliveryService } from './email/deliveries.ts';
+import { createEmailDeliveryPass, type EmailDeliveryPass } from './email/runner.ts';
+import type { EmailTransport } from './email/transport.ts';
 import { createD1DiscrepancyStore, type DiscrepancyStore } from './payments/discrepancies.ts';
 import { createSumUpClient } from './payments/sumup/client.ts';
 import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
@@ -191,6 +194,7 @@ let cachedOrderMutations: OrderMutationService | null = null;
 let cachedTicketIssuance: TicketIssuanceService | null = null;
 let cachedTicketCredentials: TicketCredentialService | null = null;
 let cachedTicketTokens: TicketTokenService | null = null;
+let cachedEmailDeliveries: EmailDeliveryService | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
 let cachedVerifier: SumUpPaymentVerifier | null = null;
 let cachedDiscrepancyStore: DiscrepancyStore | null = null;
@@ -335,6 +339,48 @@ export function getTicketCredentials(): TicketCredentialService {
   if (!database) throw new Error('The D1 binding "DB" is not available for ticket credentials.');
   cachedTicketCredentials ??= createD1TicketCredentials(database);
   return cachedTicketCredentials;
+}
+
+/**
+ * The AMPED-08C1 ticket-email outbox.
+ *
+ * Reads and the durable delivery model only: it creates logical intents,
+ * claims and records results, but never sends anything itself. The scheduled
+ * pass and the protected admin page are the only callers.
+ */
+export function getEmailDeliveries(): EmailDeliveryService {
+  if (!database) {
+    throw new Error('The D1 binding "DB" is not available, so email deliveries cannot be read.');
+  }
+  cachedEmailDeliveries ??= createD1EmailDeliveries(database);
+  return cachedEmailDeliveries;
+}
+
+/**
+ * The provider seam for ticket email.
+ *
+ * AMPED-08C1 deliberately returns null: no Resend adapter, no API key, no
+ * network transport exists in this slice. The scheduled pass treats null as
+ * "identify only" — zero external sends and nothing marked accepted — and the
+ * completion report records that as a property of the build. AMPED-08C2
+ * returns a Resend-backed adapter here; nothing else changes.
+ */
+export function getEmailTransport(): EmailTransport | null {
+  return null;
+}
+
+/**
+ * The scheduled email pass: intent recovery, abandoned-lease requeue, and —
+ * only when a transport is configured — due-delivery sending through the
+ * provider-independent contract. The token service is resolved lazily so a
+ * runtime without the signing secret can still recover intents.
+ */
+export function getEmailDeliveryPass(): EmailDeliveryPass {
+  return createEmailDeliveryPass({
+    deliveries: getEmailDeliveries(),
+    tokens: () => getTicketTokens(),
+    transport: getEmailTransport(),
+  });
 }
 
 export function getTicketTokens(): TicketTokenService {

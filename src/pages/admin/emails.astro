@@ -1,0 +1,169 @@
+---
+/**
+ * Ticket email deliveries (AMPED-08C1).
+ *
+ * Read-only visibility for the durable outbox: what is waiting, what will
+ * retry, what failed, what is ambiguous, and what a provider has accepted.
+ *
+ * Deliberately NOT a resend console. There is no "send to another address"
+ * action, no manual ambiguity resolution and no editing: a delivery is the
+ * frozen record of one logical intent, and provider reconciliation arrives
+ * with AMPED-08C2. The page answers one question an operator actually asks —
+ * "did the confirmation go out for this order?".
+ *
+ * The recipient address is deliberately not shown. The order reference is
+ * enough to find the order, and a delivery queue is not a reason to spread
+ * personal data onto another screen (the same rule as /admin/discrepancies).
+ */
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import DataTable from '@/components/admin/DataTable.astro';
+import StatCard from '@/components/admin/StatCard.astro';
+import Badge from '@/components/ui/Badge.astro';
+import Callout from '@/components/ui/Callout.astro';
+import EmptyState from '@/components/ui/EmptyState.astro';
+import { getEmailDeliveries } from '@/services/index.ts';
+import { formatDateTime } from '@/lib/dates.ts';
+import { EMAIL_DELIVERY_ERROR_LABEL, EMAIL_DELIVERY_STATE_LABEL } from '@/lib/text.ts';
+
+export const prerender = false;
+
+const deliveries = getEmailDeliveries();
+const [counts, recent] = await Promise.all([
+  deliveries.countByState(),
+  deliveries.listRecent(100),
+]);
+
+const STATE_TONE: Record<string, 'go' | 'warn' | 'stop' | 'urgent' | 'muted' | 'volt' | 'neutral'> = {
+  pending: 'neutral',
+  claimed: 'volt',
+  accepted: 'go',
+  retryable: 'warn',
+  permanent_failure: 'stop',
+  ambiguous: 'urgent',
+};
+
+const label = (map: Record<string, string>, key: string | null): string | null =>
+  key ? (map[key] ?? key) : null;
+---
+
+<AdminLayout
+  title="Emails"
+  subtitle="Ticket confirmations recorded for paid orders, and what has happened to each one."
+  wide
+>
+  <div class="email-stats">
+    <StatCard
+      label="Waiting"
+      value={counts.pending + counts.claimed}
+      detail="Not sent yet"
+    />
+    <StatCard
+      label="Will retry"
+      value={counts.retryable}
+      tone={counts.retryable > 0 ? 'warn' : 'default'}
+      detail="Temporary problem"
+    />
+    <StatCard
+      label="Failed"
+      value={counts.permanent_failure}
+      tone={counts.permanent_failure > 0 ? 'stop' : 'default'}
+      detail="Needs a decision"
+    />
+    <StatCard
+      label="Needs checking"
+      value={counts.ambiguous}
+      tone={counts.ambiguous > 0 ? 'warn' : 'default'}
+      detail="Outcome unknown"
+    />
+    <StatCard
+      label="Accepted"
+      value={counts.accepted}
+      tone={counts.accepted > 0 ? 'go' : 'default'}
+      detail="Provider has it"
+    />
+  </div>
+
+  <Callout tone="info" label="This build" title="No email provider is connected yet">
+    <p>
+      Deliveries are recorded here but nothing is sent from this build. When the provider is
+      connected, <strong>Accepted</strong> will mean the provider has taken responsibility for the
+      message — not that the customer has read it.
+    </p>
+  </Callout>
+
+  {
+    recent.length > 0 ? (
+      <DataTable caption="Ticket email deliveries, newest first">
+        <thead>
+          <tr>
+            <th scope="col">Order</th>
+            <th scope="col">State</th>
+            <th scope="col" class="num">Attempts</th>
+            <th scope="col">Last attempt</th>
+            <th scope="col">Next retry</th>
+            <th scope="col">Problem</th>
+            <th scope="col">Recorded</th>
+          </tr>
+        </thead>
+        <tbody>
+          {recent.map(({ delivery, orderReference }) => (
+            <tr>
+              <td class="mono">{orderReference}</td>
+              <td>
+                <Badge tone={STATE_TONE[delivery.state] ?? 'neutral'} size="sm" dot>
+                  {label(EMAIL_DELIVERY_STATE_LABEL, delivery.state)}
+                </Badge>
+              </td>
+              <td class="num">{delivery.attemptCount}</td>
+              <td class="dim mono">
+                {delivery.lastAttemptAt ? formatDateTime(delivery.lastAttemptAt) : '-'}
+              </td>
+              <td class="dim mono">
+                {delivery.nextRetryAt ? formatDateTime(delivery.nextRetryAt) : '-'}
+              </td>
+              <td class="dim">
+                {delivery.lastErrorClass ? (
+                  <span>
+                    {label(EMAIL_DELIVERY_ERROR_LABEL, delivery.lastErrorClass)}
+                    {delivery.lastErrorCode ? <span class="row-sub mono">{delivery.lastErrorCode}</span> : null}
+                  </span>
+                ) : (
+                  '-'
+                )}
+              </td>
+              <td class="dim mono">{formatDateTime(delivery.createdAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </DataTable>
+    ) : (
+      <EmptyState
+        title="No ticket emails recorded yet"
+        body="A confirmation is recorded automatically once a paid order is fully ticketed and every ticket has its QR credential."
+      />
+    )
+  }
+</AdminLayout>
+
+<style>
+  .email-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--s-3);
+  }
+
+  .row-sub {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: var(--step--2);
+  }
+
+  .dim {
+    color: var(--text-muted);
+  }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

@@ -96,6 +96,28 @@ export const DISCREPANCY_STATE_LABEL: Record<string, string> = {
   refund_failed: 'Refund failed',
 };
 
+/**
+ * Ticket-email delivery states (AMPED-08C1), in words an operator can act on.
+ * "Accepted" deliberately means "the provider took responsibility", not
+ * "the customer has read it" — no external exactly-once delivery is claimed.
+ */
+export const EMAIL_DELIVERY_STATE_LABEL: Record<string, string> = {
+  pending: 'Waiting',
+  claimed: 'Sending',
+  accepted: 'Accepted',
+  retryable: 'Will retry',
+  permanent_failure: 'Failed',
+  ambiguous: 'Needs checking',
+};
+
+/** Provider-independent last-error classes, in operator words. */
+export const EMAIL_DELIVERY_ERROR_LABEL: Record<string, string> = {
+  retryable: 'Temporary problem',
+  permanent_failure: 'Permanent failure',
+  ambiguous: 'Outcome unknown',
+  lease_expired: 'Abandoned attempt recovered',
+};
+
 export const ENQUIRY_KIND_LABEL: Record<EnquiryKind, string> = {
   artist: 'Artist',
   venue: 'Venue',

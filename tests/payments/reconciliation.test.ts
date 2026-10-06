@@ -69,6 +69,22 @@ vi.mock('@/services/index.ts', () => ({
   getTicketCredentials: () => ({
     recoverMissing: async () => ({ examined: 0, created: 0, failures: 0 }),
   }),
+  // AMPED-08C1 added the email pass. These tests are about reconciliation, so
+  // it is wired to a no-op that reports the empty summary shape; the email
+  // outbox has its own suites.
+  getEmailDeliveryPass: () => ({
+    run: async () => ({
+      intents: { examined: 0, created: 0, failures: 0 },
+      leasesRequeued: 0,
+      identified: 0,
+      attempted: 0,
+      accepted: 0,
+      retryable: 0,
+      permanentFailures: 0,
+      ambiguous: 0,
+      transport: null,
+    }),
+  }),
 }));
 
 const { POST } = await import('../../src/pages/api/webhooks/sumup.ts');

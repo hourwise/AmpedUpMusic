@@ -132,7 +132,7 @@ ${COMPOUND_STATEMENT_END}`;
 
   it('leaves the accepted migrations statement counts unchanged', () => {
     const files = readdirSync(join(root, 'migrations')).filter((name) => name.endsWith('.sql')).sort();
-    expect(files).toHaveLength(15);
+    expect(files).toHaveLength(16);
     const counts = files.filter((name) => name < '0014_').map((name) =>
       splitStatements(readFileSync(join(root, 'migrations', name), 'utf8')).length,
     );

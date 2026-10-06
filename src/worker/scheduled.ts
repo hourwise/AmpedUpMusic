@@ -1,16 +1,19 @@
 /**
- * Scheduled orchestration (AMPED-06B, extended by AMPED-07D).
+ * Scheduled orchestration (AMPED-06B, extended by AMPED-07D and AMPED-08C1).
  *
- * Orchestration only: it asks the service layer to do two things and reports
- * what happened. All SQL, all reservation semantics and all payment
- * verification live behind `src/services/**`.
+ * Orchestration only: it asks the service layer to do its passes and reports
+ * what happened. All SQL, all reservation semantics, all payment verification
+ * and the whole email outbox live behind `src/services/**`.
  *
  * ORDER IS LOAD-BEARING
  * Reconciliation runs BEFORE expiry, every time. Reversed, a customer who
  * genuinely paid but whose webhook never arrived would have their hold
  * expired and their tickets resold moments before the reconciler would have
  * rescued them. Paying first costs nothing and closes that window; the sweep
- * then expires whatever is genuinely abandoned.
+ * then expires whatever is genuinely abandoned. Email intent recovery runs
+ * after credential recovery (a confirmation requires every ticket's durable
+ * credential), and delivery runs last because it is the only step that could
+ * ever leave the process.
  *
  * CADENCE
  * The existing five-minute cron is already the right rate and is unchanged.
@@ -22,10 +25,13 @@
  * FAILURE ISOLATION
  * A runtime with no SumUp credentials must still expire holds - otherwise a
  * missing secret would silently take stock off sale. Reconciliation is
- * therefore allowed to be skipped, never to fail the run.
+ * therefore allowed to be skipped, never to fail the run. The same principle
+ * applies to email: with no transport configured the pass identifies work and
+ * sends nothing, rather than churning unsendable rows.
  */
 
 import {
+  getEmailDeliveryPass,
   getPaymentDiscrepancyDetection,
   getPaymentReconciliation,
   getReservationMaintenance,
@@ -43,6 +49,7 @@ import {
 import { PaymentConfigurationError } from '@/services/payments/sumup/types.ts';
 import type { FulfilmentRecoverySummary } from '@/services/tickets/issuance.ts';
 import type { CredentialRecoverySummary } from '@/services/tickets/credentials.ts';
+import type { EmailDeliveryPassSummary } from '@/services/email/runner.ts';
 
 export interface ScheduledTaskSummary {
   /** Null when SumUp is not configured in this runtime. */
@@ -52,6 +59,12 @@ export interface ScheduledTaskSummary {
   discrepancies: DiscrepancyDetectionSummary | null;
   fulfilment: FulfilmentRecoverySummary;
   credentials: CredentialRecoverySummary;
+  /**
+   * Email-intent recovery plus the (provider-gated, read-only by default)
+   * delivery step. In AMPED-08C1 no transport is configured, so this performs
+   * zero external sends and marks no delivery accepted.
+   */
+  email: EmailDeliveryPassSummary;
 }
 
 export async function runScheduledTasks(now: Date = new Date()): Promise<ScheduledTaskSummary> {
@@ -71,7 +84,15 @@ export async function runScheduledTasks(now: Date = new Date()): Promise<Schedul
   // provider-independent and scans only the indexed incomplete paid queue.
   const fulfilment = await getTicketIssuance().recoverPending();
   const credentials = await getTicketCredentials().recoverMissing();
-  return { reconciliation, expired, discrepancies, fulfilment, credentials };
+  // 5. Create missing ticket-confirmation intents (crash window between
+  //    fulfilment and intent creation) and identify due deliveries. The
+  //    accepted order is preserved: email-intent recovery runs after
+  //    credential recovery and the delivery step runs last. With no email
+  //    transport configured this performs zero external sends and leaves
+  //    unsendable rows untouched rather than churning them every five
+  //    minutes.
+  const email = await getEmailDeliveryPass().run(now);
+  return { reconciliation, expired, discrepancies, fulfilment, credentials, email };
 }
 
 async function detectIfConfigured(now: Date): Promise<DiscrepancyDetectionSummary | null> {
