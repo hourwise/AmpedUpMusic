@@ -1,0 +1,85 @@
+---
+import DoorLayout from '@/layouts/DoorLayout.astro';
+import { getServices } from '@/services/index.ts';
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+const eventId = Astro.params.eventId ?? '';
+const event = eventId ? await getServices().admin.getById(eventId) : null;
+if (!event) Astro.response.status = 404;
+---
+
+<DoorLayout title={event ? `Check in — ${event.title}` : 'Gig not found'} eventTitle={event?.title ?? 'Gig not found'} exitHref="/admin/door" exitLabel="Gigs">
+  {event ? (
+    <main class="scanner" data-event-id={event.id}>
+      <p class="context">Scanning for <strong>{event.title}</strong></p>
+      <p>Scan a QR with a keyboard-style scanner or paste its decoded text. This page does not use the camera.</p>
+      <form data-check-in-form>
+        <label for="ticket-token">Ticket QR text</label>
+        <input id="ticket-token" name="token" type="text" required autocomplete="off" spellcheck="false" autofocus />
+        <button type="submit">Check in ticket</button>
+      </form>
+      <section class="result" data-result aria-live="assertive" hidden>
+        <h2 data-result-title></h2>
+        <p data-result-message></p>
+      </section>
+      <p><a href="/admin/orders">Find a ticket QR in orders</a></p>
+    </main>
+  ) : <p>Choose an event from the door list.</p>}
+</DoorLayout>
+
+<script>
+  type Outcome = 'admitted' | 'already_checked_in' | 'manual_review_required' | 'wrong_event' | 'not_eligible' | 'invalid_ticket';
+  const copy: Record<Outcome, { title: string; message: string; tone: string }> = {
+    admitted: { title: 'Admit', message: 'Ticket checked in successfully.', tone: 'good' },
+    already_checked_in: { title: 'Already used', message: 'This ticket was checked in previously.', tone: 'warning' },
+    manual_review_required: { title: 'Partial refund — manual review required', message: 'This order has been partially refunded, but Amped Up does not yet have a ticket-level refund allocation. This ticket cannot be checked in automatically.', tone: 'warning' },
+    wrong_event: { title: 'Wrong gig', message: 'This ticket belongs to a different event. No check-in was made.', tone: 'warning' },
+    not_eligible: { title: 'Cannot admit', message: 'The order or ticket is not eligible for admission. No check-in was made.', tone: 'danger' },
+    invalid_ticket: { title: 'Invalid ticket', message: 'This is not a valid Amped Up ticket credential.', tone: 'danger' },
+  };
+  const root = document.querySelector<HTMLElement>('[data-event-id]');
+  const form = document.querySelector<HTMLFormElement>('[data-check-in-form]');
+  const input = document.querySelector<HTMLInputElement>('#ticket-token');
+  const panel = document.querySelector<HTMLElement>('[data-result]');
+  const title = document.querySelector<HTMLElement>('[data-result-title]');
+  const message = document.querySelector<HTMLElement>('[data-result-message]');
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!root || !input || !panel || !title || !message) return;
+    const token = input.value.trim();
+    if (!token) return;
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch(`/api/admin/events/${encodeURIComponent(root.dataset.eventId ?? '')}/check-in`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+      });
+      const data = await response.json() as { outcome?: Outcome; checkedInAt?: string };
+      const result = response.ok && data.outcome ? copy[data.outcome] : undefined;
+      panel.dataset.tone = result?.tone ?? 'danger';
+      title.textContent = result?.title ?? 'Could not check ticket';
+      message.textContent = result ? `${result.message}${data.outcome === 'already_checked_in' && data.checkedInAt ? ` Original check-in: ${data.checkedInAt}.` : ''}` : 'Please try again or contact an administrator.';
+      panel.hidden = false;
+      input.value = '';
+      input.focus();
+    } catch {
+      panel.dataset.tone = 'danger';
+      title.textContent = 'Could not check ticket';
+      message.textContent = 'The scanner could not reach the check-in service.';
+      panel.hidden = false;
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .scanner { display: grid; gap: var(--s-4); max-width: 38rem; margin: auto; padding: var(--s-5); }
+  .context { font-size: var(--step-1); }
+  form { display: grid; gap: var(--s-3); }
+  input { min-height: 3.5rem; width: 100%; padding: var(--s-3); }
+  button { min-height: 3.5rem; border: 0; border-radius: var(--r); background: var(--volt); color: var(--text-on-accent); font-weight: 700; }
+  .result { padding: var(--s-5); border: 3px solid var(--go); border-radius: var(--r); }
+  .result[data-tone="warning"] { border-color: var(--warn); }
+  .result[data-tone="danger"] { border-color: var(--stop); }
+</style>

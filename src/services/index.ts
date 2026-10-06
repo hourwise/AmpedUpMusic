@@ -59,6 +59,10 @@ import {
 } from './d1/social.ts';
 import { createD1OrderMutations, type OrderMutationService } from './orders/service.ts';
 import { createD1TicketIssuance, type TicketIssuanceService } from './tickets/issuance.ts';
+import { createD1TicketCredentials, type TicketCredentialService } from './tickets/credentials.ts';
+import { createTicketTokenService, type TicketTokenService } from './tickets/token.ts';
+import { createD1TicketCheckIn } from './tickets/check-in.ts';
+import { renderTicketQrSvg } from './tickets/qr.ts';
 import { createD1DiscrepancyStore, type DiscrepancyStore } from './payments/discrepancies.ts';
 import { createSumUpClient } from './payments/sumup/client.ts';
 import { createSumUpPaymentProvider } from './payments/sumup/provider.ts';
@@ -163,6 +167,18 @@ const database = await boundDatabase();
 const mediaBucket = await boundMediaBucket();
 const sumUpConfig = await boundSumUpConfig();
 
+async function boundTicketTokenSecret(): Promise<string | undefined> {
+  try {
+    const runtime = (await import('cloudflare:workers')) as unknown as {
+      env?: { TICKET_TOKEN_SECRET?: string };
+    };
+    return runtime.env?.TICKET_TOKEN_SECRET;
+  } catch {
+    return undefined;
+  }
+}
+const ticketTokenSecret = await boundTicketTokenSecret();
+
 let cached: Services | null = null;
 let cachedGigMutations: GigMutationService | null = null;
 let cachedEntityMutations: {
@@ -173,6 +189,8 @@ let cachedMediaMutations: MediaMutationService | null = null;
 let cachedSocial: (SocialMutationService & SocialService) | null = null;
 let cachedOrderMutations: OrderMutationService | null = null;
 let cachedTicketIssuance: TicketIssuanceService | null = null;
+let cachedTicketCredentials: TicketCredentialService | null = null;
+let cachedTicketTokens: TicketTokenService | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
 let cachedVerifier: SumUpPaymentVerifier | null = null;
 let cachedDiscrepancyStore: DiscrepancyStore | null = null;
@@ -311,6 +329,40 @@ export function getTicketIssuance(): TicketIssuanceService {
   }
   cachedTicketIssuance ??= createD1TicketIssuance(database);
   return cachedTicketIssuance;
+}
+
+export function getTicketCredentials(): TicketCredentialService {
+  if (!database) throw new Error('The D1 binding "DB" is not available for ticket credentials.');
+  cachedTicketCredentials ??= createD1TicketCredentials(database);
+  return cachedTicketCredentials;
+}
+
+export function getTicketTokens(): TicketTokenService {
+  cachedTicketTokens ??= createTicketTokenService(ticketTokenSecret);
+  return cachedTicketTokens;
+}
+
+export function getTicketCheckIn() {
+  if (!database) throw new Error('The D1 binding "DB" is not available for ticket check-in.');
+  return createD1TicketCheckIn(database, getTicketTokens());
+}
+
+export async function getTicketPresentation(ticketId: string): Promise<{
+  ticketId: string; reference: string; eventId: string; eventTitle: string;
+  token: string; svg: string;
+} | null> {
+  if (!database) throw new Error('The D1 binding "DB" is not available for ticket presentation.');
+  const row = await database.prepare(`
+    select t.id, t.reference, t.event_id, e.title as event_title
+    from tickets t join orders o on o.id = t.order_id join events e on e.id = t.event_id
+    where t.id = ?1 and o.status = 'paid' and t.status in ('issued', 'checked_in')
+  `).bind(ticketId).first<{ id: string; reference: string; event_id: string; event_title: string }>();
+  if (!row) return null;
+  const credential = await getTicketCredentials().ensureTicketCredential(ticketId);
+  if (!credential) return null;
+  const token = await getTicketTokens().sign(credential);
+  return { ticketId: row.id, reference: row.reference, eventId: row.event_id,
+    eventTitle: row.event_title, token, svg: renderTicketQrSvg(token) };
 }
 
 /**

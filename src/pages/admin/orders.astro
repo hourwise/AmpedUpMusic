@@ -139,6 +139,9 @@ const ticketCount = paid.reduce((sum, o) => sum + o.ticketCount, 0);
                     {item.quantity} &times; {item.ticketTypeName}
                   </span>
                 ))}
+                {row.order.status === 'paid' && row.tickets.map((ticket) => (
+                  <a class="block" href={`/admin/tickets/${ticket.id}`}>View {ticket.reference} QR</a>
+                ))}
               </td>
               <td class="num">{row.totalLabel}</td>
               <td>
@@ -166,10 +169,9 @@ const ticketCount = paid.reduce((sum, o) => sum + o.ticketCount, 0);
     )
   }
 
-  <ScaffoldNote slice="AMPED-06A">
-    Orders are demonstration records. Refunds stay in SumUp in V1: the operator refunds there, then
-    marks the order refunded here, which voids the tickets. Building our own refund machinery is
-    explicitly out of V1 scope.
+  <ScaffoldNote slice="AMPED-08B">
+    Partially refunded orders require manual review at the door. Automatic ticket-level admission
+    remains disabled until a later refund slice records which purchased unit was refunded.
   </ScaffoldNote>
 </AdminLayout>
 

@@ -66,6 +66,9 @@ vi.mock('@/services/index.ts', () => ({
   getTicketIssuance: () => ({
     recoverPending: async () => ({ examined: 0, issued: 0, completed: 0, failures: 0 }),
   }),
+  getTicketCredentials: () => ({
+    recoverMissing: async () => ({ examined: 0, created: 0, failures: 0 }),
+  }),
 }));
 
 const { POST } = await import('../../src/pages/api/webhooks/sumup.ts');

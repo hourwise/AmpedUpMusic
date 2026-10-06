@@ -1,0 +1,32 @@
+---
+import AdminLayout from '@/layouts/AdminLayout.astro';
+import { getTicketPresentation } from '@/services/index.ts';
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+const ticketId = Astro.params.ticketId ?? '';
+const ticket = ticketId ? await getTicketPresentation(ticketId) : null;
+if (!ticket) Astro.response.status = 404;
+---
+
+<AdminLayout title={ticket ? `Ticket ${ticket.reference}` : 'Ticket unavailable'}>
+  {ticket ? (
+    <main class="credential-view">
+      <p>This protected operator view shows the signed credential for staging inspection. Treat it as a bearer ticket.</p>
+      <h2>{ticket.eventTitle}</h2>
+      <div class="qr" set:html={ticket.svg} aria-label={`QR credential for ticket ${ticket.reference}`} />
+      <p class="reference">{ticket.reference}</p>
+      <label for="qr-text">Decoded QR text for a scanner or test</label>
+      <textarea id="qr-text" readonly rows="3">{ticket.token}</textarea>
+      <p><a href={`/admin/events/${ticket.eventId}/check-in`}>Open this event's secure scanner</a></p>
+    </main>
+  ) : <p>This ticket is unavailable for automatic presentation.</p>}
+</AdminLayout>
+
+<style>
+  .credential-view { display: grid; gap: var(--s-4); max-width: 34rem; }
+  .qr { width: min(100%, 26rem); padding: var(--s-3); background: white; }
+  .qr :global(svg) { display: block; width: 100%; height: auto; }
+  .reference { font-family: monospace; font-size: var(--step-1); }
+  textarea { width: 100%; overflow-wrap: anywhere; }
+</style>

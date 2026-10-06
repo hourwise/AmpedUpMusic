@@ -24,12 +24,14 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.3.2",
     "astro": "^7.3.3",
-    "jose": "^6.2.12"
+    "jose": "^6.2.12",
+    "qrcode-svg": "^1.1.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@cloudflare/workers-types": "^5.20260920.1",
     "@types/node": "^26.6.2",
+    "@types/qrcode-svg": "^1.1.5",
     "typescript": "^5.9.0",
     "vitest": "^5.0.1",
     "wrangler": "^4.135.0"

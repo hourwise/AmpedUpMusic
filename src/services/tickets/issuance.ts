@@ -14,6 +14,8 @@
 
 export const FULFILMENT_RECOVERY_LIMIT = 25;
 
+import { createD1TicketCredentials } from './credentials.ts';
+
 export interface IssuanceResult {
   orderId: string;
   outcome: 'unpaid' | 'complete';
@@ -114,6 +116,7 @@ export function createD1TicketIssuance(
   db: D1Database,
   now: () => Date = () => new Date(),
 ): TicketIssuanceService {
+  const credentials = createD1TicketCredentials(db);
   async function issuePaidOrder(orderId: string): Promise<IssuanceResult> {
     const snapshot = await db.prepare(ORDER_SNAPSHOT_SQL).bind(orderId).first<OrderSnapshot>();
     if (!snapshot) throw new Error('Order not found for ticket fulfilment.');
@@ -121,6 +124,7 @@ export function createD1TicketIssuance(
       return { orderId, outcome: 'unpaid', expected: snapshot.expected, issued: 0 };
     }
     if (snapshot.tickets_fulfilled_at !== null) {
+      await credentials.ensureForOrder(orderId);
       return { orderId, outcome: 'complete', expected: snapshot.expected, issued: 0 };
     }
     if (snapshot.expected <= 0 || snapshot.unkeyed > 0) {
@@ -141,6 +145,7 @@ export function createD1TicketIssuance(
     if (!completion?.tickets_fulfilled_at) {
       throw new Error('Paid order ticket fulfilment remains incomplete.');
     }
+    await credentials.ensureForOrder(orderId);
     return { orderId, outcome: 'complete', expected: snapshot.expected, issued };
   }
 

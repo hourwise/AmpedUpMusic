@@ -30,6 +30,7 @@ import {
   getPaymentReconciliation,
   getReservationMaintenance,
   getTicketIssuance,
+  getTicketCredentials,
 } from '@/services/index.ts';
 import {
   reconcileSumUpPayments,
@@ -41,6 +42,7 @@ import {
 } from '@/services/payments/discrepancy-detection.ts';
 import { PaymentConfigurationError } from '@/services/payments/sumup/types.ts';
 import type { FulfilmentRecoverySummary } from '@/services/tickets/issuance.ts';
+import type { CredentialRecoverySummary } from '@/services/tickets/credentials.ts';
 
 export interface ScheduledTaskSummary {
   /** Null when SumUp is not configured in this runtime. */
@@ -49,6 +51,7 @@ export interface ScheduledTaskSummary {
   /** Null when SumUp is not configured in this runtime. */
   discrepancies: DiscrepancyDetectionSummary | null;
   fulfilment: FulfilmentRecoverySummary;
+  credentials: CredentialRecoverySummary;
 }
 
 export async function runScheduledTasks(now: Date = new Date()): Promise<ScheduledTaskSummary> {
@@ -67,7 +70,8 @@ export async function runScheduledTasks(now: Date = new Date()): Promise<Schedul
   // 4. Recover the crash window after paid state was recorded. This pass is
   // provider-independent and scans only the indexed incomplete paid queue.
   const fulfilment = await getTicketIssuance().recoverPending();
-  return { reconciliation, expired, discrepancies, fulfilment };
+  const credentials = await getTicketCredentials().recoverMissing();
+  return { reconciliation, expired, discrepancies, fulfilment, credentials };
 }
 
 async function detectIfConfigured(now: Date): Promise<DiscrepancyDetectionSummary | null> {

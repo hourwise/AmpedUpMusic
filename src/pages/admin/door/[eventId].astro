@@ -101,6 +101,7 @@ const DEMO: Record<'valid' | 'used' | 'invalid', ScanResult> = {
       </p>
 
       <div class="door-screen">
+        <p class="secure-scanner-link"><a href={`/admin/events/${event.id}/check-in`}>Open secure QR check-in for {event.title}</a></p>
         <!-- SCAN ---------------------------------------------------------- -->
         <section class="mode" data-mode="scan" aria-label="Scan tickets">
           <div class="viewfinder" data-viewfinder>

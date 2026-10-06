@@ -1263,6 +1263,15 @@ have more. `npm run verify` green.
 
 ### AMPED-08B — QR admission credentials
 
+**Accepted 08B implementation note:** The current 08B brief includes
+authorised door check-in in this slice and specifies a versioned HMAC token
+over a high-entropy opaque credential identity. The stored identity alone is
+not an admission token; the server-only signing secret is required. This
+supersedes the older hash-only and later-09B boundaries below. For V1,
+`partially_refunded` requires manual review with no automatic admission or
+credential mutation until a later refund slice records unit-level allocation.
+See [`AMPED-08B-CERTIFICATION.md`](AMPED-08B-CERTIFICATION.md).
+
 **Objective** — Each ticket carries an opaque, non-guessable admission credential.
 
 **Preconditions** — AMPED-08A merged.

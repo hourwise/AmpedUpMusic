@@ -249,7 +249,7 @@ export const INSERT_ORDER_ITEM = statement<OrderItemRow>(`
 export const INSERT_TICKET = statement<TicketRow>(`
   insert into tickets (
     id, order_id, event_id, ticket_type_id, order_item_id, unit_ordinal,
-    reference, token_hash, status,
+      reference, token_hash, credential_id, status,
     attendee_name, is_guest_list, issued_at, checked_in_at
   )
   select
@@ -259,9 +259,10 @@ export const INSERT_TICKET = statement<TicketRow>(`
     json_extract(value, '$.ticket_type_id'),
     json_extract(value, '$.order_item_id'),
     json_extract(value, '$.unit_ordinal'),
-    json_extract(value, '$.reference'),
-    json_extract(value, '$.token_hash'),
-    json_extract(value, '$.status'),
+      json_extract(value, '$.reference'),
+      json_extract(value, '$.token_hash'),
+      json_extract(value, '$.credential_id'),
+      json_extract(value, '$.status'),
     json_extract(value, '$.attendee_name'),
     json_extract(value, '$.is_guest_list'),
     json_extract(value, '$.issued_at'),

@@ -148,6 +148,7 @@ describe('migration runner', () => {
       '0012',
       '0013',
       '0014',
+      '0015',
     ]);
     expect(result.alreadyApplied).toEqual([]);
 
@@ -163,7 +164,7 @@ describe('migration runner', () => {
       )
       .all<{ id: string; name: string; checksum: string; applied_at: string }>();
 
-    expect(applied.length).toBe(14);
+    expect(applied.length).toBe(15);
     expect(withChecksums.results.map((row) => row.name)).toEqual(
       loadMigrations().map((migration) => migration.name),
     );
@@ -179,7 +180,7 @@ describe('migration runner', () => {
     const second = await migrate(db);
 
     expect(second.applied).toEqual([]);
-    expect(second.alreadyApplied).toHaveLength(14);
+    expect(second.alreadyApplied).toHaveLength(15);
 
     // Not merely "no error": the ledger must be untouched, timestamps and all.
     expect(await readAppliedMigrations(db)).toEqual(before);
@@ -189,7 +190,7 @@ describe('migration runner', () => {
     const ids = loadMigrations().map((migration) => migration.id);
     expect(ids).toEqual([...ids].sort());
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(14);
+    expect(ids).toHaveLength(15);
   });
 
   it('refuses to run if a migration that has already been applied is edited', async () => {
@@ -249,7 +250,7 @@ describe('migration runner', () => {
 
     const rebuilt = await migrate(db);
 
-    expect(rebuilt.applied).toHaveLength(14);
+    expect(rebuilt.applied).toHaveLength(15);
     expect(await schemaObjects(db)).toEqual(expected);
   });
 });
@@ -1075,7 +1076,7 @@ describe('integrity constraints', () => {
     const ledger = await db
       .prepare('select count(*) as n from schema_migrations')
       .first<{ n: number }>();
-    expect(ledger?.n).toBe(14);
+    expect(ledger?.n).toBe(15);
   });
 });
 
@@ -1097,6 +1098,8 @@ const REQUIRED_INDEXES: ReadonlyArray<{ name: string; table: string; unique: boo
   },
   { name: 'tickets_order_id_idx', table: 'tickets', unique: false },
   { name: 'tickets_reference_unique', table: 'tickets', unique: true },
+  { name: 'tickets_credential_id_unique', table: 'tickets', unique: true },
+  { name: 'audit_ticket_checked_in_unique', table: 'audit_log', unique: true },
   { name: 'checkins_ticket_id_unique', table: 'checkins', unique: true },
   { name: 'mailing_list_email_unique', table: 'mailing_list', unique: true },
 ];
@@ -1133,6 +1136,7 @@ describe('indexes', () => {
       'artists_slug_unique',
       'audit_log_occurred_at_idx',
       'audit_order_fulfilled_unique',
+      'audit_ticket_checked_in_unique',
       'checkins_event_id_idx',
       'checkins_ticket_id_unique',
       'enquiries_status_received_at_idx',
@@ -1158,7 +1162,9 @@ describe('indexes', () => {
       'social_posts_event_id_idx',
       'social_posts_featured_idx',
       'ticket_types_event_id_idx',
+      'tickets_credential_id_unique',
       'tickets_event_id_idx',
+      'tickets_missing_credential_idx',
       'tickets_order_id_idx',
       'tickets_purchased_unit_unique',
       'tickets_reference_unique',

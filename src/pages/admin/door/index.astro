@@ -33,7 +33,7 @@ const counts = new Map(
             const relative = relativeDayLabel(event.startsAt);
             return (
               <li>
-                <a class:list={['choose-item', index === 0 && 'choose-item-first']} href={`/admin/door/${event.id}`}>
+                <a class:list={['choose-item', index === 0 && 'choose-item-first']} href={`/admin/events/${event.id}/check-in`}>
                   <span class="choose-when">
                     {relative ?? event.shortDateLabel}
                     {index === 0 && <span class="choose-flag">Most likely</span>}

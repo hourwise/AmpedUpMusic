@@ -34,6 +34,7 @@ export default {
         expired: summary.expired,
         discrepancies: summary.discrepancies,
         fulfilment: summary.fulfilment,
+        credentials: summary.credentials,
       }));
     }));
   },

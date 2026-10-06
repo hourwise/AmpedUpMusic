@@ -295,6 +295,7 @@ export function buildOrderRows(now: Date, ticketTypes: readonly TicketTypeRow[])
           unit_ordinal: isPaid ? index + 1 : null,
           reference: `${reference}-${index + 1}`,
           token_hash: null,
+          credential_id: null,
           status: orderStatusForTickets ?? (checkedIn ? 'checked_in' : 'issued'),
           attendee_name: isGuestList ? customerName : null,
           is_guest_list: isGuestList ? 1 : 0,

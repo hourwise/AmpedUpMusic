@@ -107,13 +107,13 @@ describe('AMPED-07A contract parity', () => {
     expect(sumup.name).toBe('sumup');
   });
 
-  it('does not change the contract file or add dependencies', () => {
+  it('keeps the payment contract independent of the later QR dependency', () => {
     const contracts = readFileSync(join(root, 'src', 'services', 'contracts.ts'), 'utf8');
     expect(contracts).toContain("readonly name: 'sumup' | 'mock';");
     const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>;
     };
-    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@astrojs/cloudflare', 'astro', 'jose']);
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@astrojs/cloudflare', 'astro', 'jose', 'qrcode-svg']);
   });
 });
 

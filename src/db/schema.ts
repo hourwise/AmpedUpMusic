@@ -210,6 +210,7 @@ export interface TicketRow {
   unit_ordinal: number | null;
   reference: string;
   token_hash: string | null;
+  credential_id: string | null;
   status: 'issued' | 'checked_in' | 'void' | 'refunded';
   attendee_name: string | null;
   is_guest_list: SqliteBool;
