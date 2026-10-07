@@ -1,5 +1,5 @@
 /**
- * The Resend EmailTransport adapter (AMPED-08C2).
+ * The Resend EmailTransport adapter (AMPED-08C2, corrected by AMPED-08C2-R1).
  *
  * Everything provider-specific lives here: the endpoint, the request shape,
  * the authentication header, the idempotency header and the translation from
@@ -26,6 +26,15 @@
  *    Only conditions that demonstrably never reached the provider's
  *    application (DNS failure, connection refused, unreachable host, TLS
  *    handshake failure) are safe to retry automatically.
+ *
+ *  - The two documented 409 idempotency conflicts are told apart because
+ *    they mean opposite things. `invalid_idempotent_request` (the key was
+ *    reused with a different payload) is a permanent local invariant defect:
+ *    retrying the unchanged request cannot repair it.
+ *    `concurrent_idempotent_requests` (the same key is in flight) is
+ *    `retryable` with the same durable key, honouring `Retry-After` when the
+ *    provider supplies one. Any other 409 stays `ambiguous` — the adapter
+ *    never guesses a classification from a coarser signal.
  *
  *  - No provider error body is stored anywhere. Only a short, validated error
  *    slug (e.g. `validation_error`) is kept as a code; the human message is
@@ -206,11 +215,36 @@ function classifyHttpFailure(
         code('resend_timeout'),
         `Resend reported a gateway timeout${detail}; acceptance cannot be established.`,
       );
-    case 409:
+    case 409: {
+      // Resend documents two distinguishable idempotency conflicts, and they
+      // mean opposite things for the queue. The comparison is against the
+      // exact documented error codes; anything else — a missing, malformed or
+      // unknown code — stays ambiguous. The adapter never guesses.
+      if (providerName === 'invalid_idempotent_request') {
+        // The key was already used with a DIFFERENT payload. The accepted
+        // design requires the immutable key and frozen payload to identify
+        // one exact logical email, so this indicates a local
+        // invariant/configuration defect: retrying the unchanged request
+        // cannot repair it.
+        return permanent(
+          'resend_invalid_idempotent_request',
+          'Resend rejected the idempotency key because it was previously used with a different request. The frozen payload and key must identify one logical email; retrying the unchanged request cannot repair this.',
+        );
+      }
+      if (providerName === 'concurrent_idempotent_requests') {
+        // Another request with the same key is in flight; Resend explicitly
+        // permits retrying this later. The durable key never changes.
+        return retryable(
+          'resend_concurrent_idempotent_requests',
+          'Resend has another request in flight for this idempotency key; the provider permits retrying later with the same key.',
+          parseRetryAfterMs(retryAfterHeader),
+        );
+      }
       return ambiguous(
-        code('resend_conflict'),
-        `Resend reported a conflict${detail}; acceptance cannot be established.`,
+        'resend_conflict',
+        `Resend reported a conflict${detail} that does not match a documented idempotency response; acceptance cannot be established.`,
       );
+    }
     case 413:
       return permanent(code('resend_payload_too_large'), `Resend rejected the request as too large${detail}.`);
     case 422:

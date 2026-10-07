@@ -65,7 +65,10 @@ Provider outcomes are translated in `src/services/email/resend.ts` only:
 | 200/201/202 without a readable message id | `ambiguous` |
 | 400, 404, 413, 422 | `permanent_failure` |
 | 401, 403 | `permanent_failure` (fix the configuration; no automatic retry) |
-| 408, 409, unexpected status/redirect | `ambiguous` |
+| 408, unexpected status/redirect | `ambiguous` |
+| 409 with `invalid_idempotent_request` | `permanent_failure` — the key was reused with a different payload, a local invariant defect; the unchanged request cannot succeed and is never automatically retried |
+| 409 with `concurrent_idempotent_requests` | `retryable` — another request with the same key is in flight; retried later with the **same** durable key and frozen payload, honouring `Retry-After` when present |
+| any other, missing or unreadable 409 code | `ambiguous` — never guessed |
 | 429 | `retryable` (honours `Retry-After`) |
 | 500, 502, 503, 504 | `retryable` (honours `Retry-After`) |
 | timeout / abort | `ambiguous` — acceptance cannot be established |

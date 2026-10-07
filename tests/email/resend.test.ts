@@ -320,8 +320,39 @@ describe('AMPED-08C2 provider outcome classification', () => {
       expected: { class: 'ambiguous', errorCode: 'resend_timeout' },
     },
     {
-      name: 'conflict (409)',
+      name: 'idempotency key reused with different content (409 invalid_idempotent_request)',
+      respond: () =>
+        json({ name: 'invalid_idempotent_request', message: 'SECRET_ECHO' }, 409),
+      expected: { class: 'permanent_failure', errorCode: 'resend_invalid_idempotent_request' },
+    },
+    {
+      name: 'concurrent request for the same idempotency key (409 concurrent_idempotent_requests)',
+      respond: () => json({ name: 'concurrent_idempotent_requests' }, 409),
+      expected: { class: 'retryable', errorCode: 'resend_concurrent_idempotent_requests' },
+    },
+    {
+      name: 'concurrent idempotent request honouring Retry-After (409)',
+      respond: () =>
+        json({ name: 'concurrent_idempotent_requests' }, 409, { 'retry-after': '45' }),
+      expected: {
+        class: 'retryable',
+        errorCode: 'resend_concurrent_idempotent_requests',
+        retryAfterMs: 45_000,
+      },
+    },
+    {
+      name: 'unknown 409 error code',
+      respond: () => json({ name: 'some_other_conflict' }, 409),
+      expected: { class: 'ambiguous', errorCode: 'resend_conflict' },
+    },
+    {
+      name: '409 without an error code',
       respond: () => json({}, 409),
+      expected: { class: 'ambiguous', errorCode: 'resend_conflict' },
+    },
+    {
+      name: 'malformed 409 response body',
+      respond: () => new Response('<html>conflict</html>', { status: 409 }),
       expected: { class: 'ambiguous', errorCode: 'resend_conflict' },
     },
     {
@@ -677,6 +708,79 @@ describe('AMPED-08C2 delivery through the durable outbox', () => {
     expect(accepted.state).toBe('accepted');
     expect(accepted.attemptCount).toBe(2);
     expect(accepted.providerMessageId).toBe('pm_after_retry');
+  });
+
+  it('treats a reused-content idempotency conflict as a permanent local defect, never persisted or logged', async () => {
+    const { service, delivery } = await intentFor(await fulfilledOrder(1));
+    const providerBodySecret = 'PROVIDER_BODY_SECRET_MUST_NEVER_BE_STORED';
+    const fake = fakeFetch(() =>
+      json({ name: 'invalid_idempotent_request', message: providerBodySecret }, 409),
+    );
+    const transport = transportWith(fake);
+
+    const warnSpy = vi.spyOn(console, 'warn');
+    const errorSpy = vi.spyOn(console, 'error');
+    const logSpy = vi.spyOn(console, 'log');
+    const summary = await passFor(service, transport).run(NOW);
+    const logged = [...warnSpy.mock.calls, ...errorSpy.mock.calls, ...logSpy.mock.calls]
+      .flat()
+      .map(String)
+      .join(' ');
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+
+    expect(summary.permanentFailures).toBe(1);
+    const row = (await service.getDelivery(delivery.id))!;
+    expect(row.state).toBe('permanent_failure');
+    expect(row.lastErrorCode).toBe('resend_invalid_idempotent_request');
+    expect(row.providerMessageId).toBeNull();
+    // The provider's response text is neither persisted on the row nor
+    // written to any operational log.
+    expect(JSON.stringify(row)).not.toContain(providerBodySecret);
+    expect(logged).not.toContain(providerBodySecret);
+
+    // A permanent local defect is never automatically retried.
+    await passFor(service, transport).run(new Date(NOW.getTime() + 6 * 60 * 60_000));
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it('retries a concurrent idempotency conflict later with the same durable key and frozen payload, then accepts', async () => {
+    const { service, delivery } = await intentFor(await fulfilledOrder(2));
+    const fake = fakeFetch(
+      () => json({ name: 'concurrent_idempotent_requests' }, 409, { 'retry-after': '90' }),
+      () => json({ id: 'pm_after_concurrent' }),
+    );
+    const transport = transportWith(fake);
+
+    const first = await passFor(service, transport).run(NOW);
+    expect(first.retryable).toBe(1);
+    const retryable = (await service.getDelivery(delivery.id))!;
+    expect(retryable.state).toBe('retryable');
+    expect(retryable.lastErrorCode).toBe('resend_concurrent_idempotent_requests');
+    expect(retryable.nextRetryAt).toBe(new Date(NOW.getTime() + 90_000).toISOString());
+
+    // Not due yet: the bounded retry schedule is observed, not churned.
+    await passFor(service, transport).run(new Date(NOW.getTime() + 30_000));
+    expect(fake.calls).toHaveLength(1);
+
+    // Due: the same durable intent retries with the SAME idempotency key and
+    // a byte-identical frozen request payload, and this time is accepted.
+    const second = await passFor(service, transport).run(new Date(NOW.getTime() + 91_000));
+    expect(second.accepted).toBe(1);
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls[0]!.headers.get('idempotency-key')).toBe(delivery.idempotencyKey);
+    expect(fake.calls[1]!.headers.get('idempotency-key')).toBe(delivery.idempotencyKey);
+    expect(fake.calls[1]!.body).toEqual(fake.calls[0]!.body);
+
+    const accepted = (await service.getDelivery(delivery.id))!;
+    expect(accepted.state).toBe('accepted');
+    expect(accepted.providerMessageId).toBe('pm_after_concurrent');
+    expect(accepted.acceptedAt).toBe(new Date(NOW.getTime() + 91_000).toISOString());
+
+    // Terminal: no further automatic sends.
+    await passFor(service, transport).run(new Date(NOW.getTime() + 24 * 60 * 60_000));
+    expect(fake.calls).toHaveLength(2);
   });
 
   it('sends nothing when Resend is requested but the configuration fails closed', async () => {
