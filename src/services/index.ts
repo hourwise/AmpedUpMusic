@@ -65,6 +65,11 @@ import { createD1TicketCheckIn } from './tickets/check-in.ts';
 import { renderTicketQrSvg } from './tickets/qr.ts';
 import { createD1EmailDeliveries, type EmailDeliveryService } from './email/deliveries.ts';
 import { createEmailDeliveryPass, type EmailDeliveryPass } from './email/runner.ts';
+import {
+  resolveEmailTransport,
+  type EmailSettings,
+  type EmailTransportSelection,
+} from './email/transport-config.ts';
 import type { EmailTransport } from './email/transport.ts';
 import { createD1DiscrepancyStore, type DiscrepancyStore } from './payments/discrepancies.ts';
 import { createSumUpClient } from './payments/sumup/client.ts';
@@ -182,6 +187,34 @@ async function boundTicketTokenSecret(): Promise<string | undefined> {
 }
 const ticketTokenSecret = await boundTicketTokenSecret();
 
+/**
+ * Read the email transport configuration (AMPED-08C2). Names and non-secret
+ * switches only; the API key itself stays inside this module and is handed
+ * straight to the adapter. Selection happens in ./email/transport-config.ts.
+ */
+async function boundEmailSettings(): Promise<EmailSettings> {
+  try {
+    const runtime = (await import('cloudflare:workers')) as unknown as {
+      env?: {
+        EMAIL_PROVIDER?: string;
+        RESEND_API_KEY?: string;
+        EMAIL_FROM?: string;
+        EMAIL_REPLY_TO?: string;
+      };
+    };
+    return {
+      EMAIL_PROVIDER: runtime.env?.EMAIL_PROVIDER,
+      RESEND_API_KEY: runtime.env?.RESEND_API_KEY,
+      EMAIL_FROM: runtime.env?.EMAIL_FROM,
+      EMAIL_REPLY_TO: runtime.env?.EMAIL_REPLY_TO,
+    };
+  } catch {
+    // Node/Vitest, or a Worker without the variables bound.
+    return {};
+  }
+}
+const emailSettings = await boundEmailSettings();
+
 let cached: Services | null = null;
 let cachedGigMutations: GigMutationService | null = null;
 let cachedEntityMutations: {
@@ -195,6 +228,7 @@ let cachedTicketIssuance: TicketIssuanceService | null = null;
 let cachedTicketCredentials: TicketCredentialService | null = null;
 let cachedTicketTokens: TicketTokenService | null = null;
 let cachedEmailDeliveries: EmailDeliveryService | null = null;
+let cachedEmailTransport: EmailTransportSelection | null = null;
 let cachedPaymentProvider: PaymentProvider | null = null;
 let cachedVerifier: SumUpPaymentVerifier | null = null;
 let cachedDiscrepancyStore: DiscrepancyStore | null = null;
@@ -357,16 +391,32 @@ export function getEmailDeliveries(): EmailDeliveryService {
 }
 
 /**
- * The provider seam for ticket email.
+ * The provider seam for ticket email (AMPED-08C2).
  *
- * AMPED-08C1 deliberately returns null: no Resend adapter, no API key, no
- * network transport exists in this slice. The scheduled pass treats null as
- * "identify only" — zero external sends and nothing marked accepted — and the
- * completion report records that as a property of the build. AMPED-08C2
- * returns a Resend-backed adapter here; nothing else changes.
+ * The transport comes from explicit configuration and nothing else:
+ * `EMAIL_PROVIDER=resend` with `RESEND_API_KEY` and `EMAIL_FROM` selects the
+ * Resend adapter. Anything else — including a requested-but-incomplete Resend
+ * configuration — selects NO transport; the pass then identifies due
+ * deliveries and sends nothing rather than falling back to a console or mock
+ * transport. The misconfiguration is logged once per isolate, without
+ * secrets, and fixing the configuration is enough to resume sending.
  */
 export function getEmailTransport(): EmailTransport | null {
-  return null;
+  return emailTransportSelection().transport;
+}
+
+function emailTransportSelection(): EmailTransportSelection {
+  if (!cachedEmailTransport) {
+    cachedEmailTransport = resolveEmailTransport(emailSettings);
+    if (cachedEmailTransport.issue) {
+      console.warn(JSON.stringify({
+        at: 'email-transport',
+        event: 'configuration-issue',
+        issue: cachedEmailTransport.issue,
+      }));
+    }
+  }
+  return cachedEmailTransport;
 }
 
 /**

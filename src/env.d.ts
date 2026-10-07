@@ -59,9 +59,19 @@ interface Env {
   // implied a verification mechanism this application does not - and cannot -
   // perform.
   SUMUP_WEBHOOK_URL?: string;
-  // AMPED-08C - transactional email
+  // AMPED-08C - transactional email.
+  // `EMAIL_PROVIDER` selects the transport: unset, blank, `console` or `none`
+  // means no external transport (deliveries are recorded and wait). `resend`
+  // selects the Resend adapter and requires RESEND_API_KEY and EMAIL_FROM; a
+  // requested-but-incomplete configuration fails closed with no transport —
+  // there is never a silent fallback to a console or mock transport.
+  // Selecting `resend` does not verify the sender domain: DNS/SPF/DKIM
+  // verification is an external operator step the application cannot observe.
+  EMAIL_PROVIDER?: string;
   RESEND_API_KEY?: string;
   EMAIL_FROM?: string;
+  // Optional Reply-To for ticket email; blank or absent omits the header.
+  EMAIL_REPLY_TO?: string;
   // AMPED-08B - QR admission credential signing
   TICKET_TOKEN_SECRET?: string;
   // AMPED-10A - Turnstile. The site key is public; the secret key is not.

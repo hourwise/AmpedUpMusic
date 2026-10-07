@@ -23,12 +23,26 @@ SUMUP_MERCHANT_CODE=replace-with-development-merchant-code
 # callback that cannot work.
 SUMUP_WEBHOOK_URL=
 
-# AMPED-08C — transactional email provider (behind the provider-independent
-# email contract). AMPED-08C1 renders and queues only: it installs no key and
-# sends nothing. The Resend adapter and its key arrive with AMPED-08C2.
+# AMPED-08C — transactional email transport (behind the provider-independent
+# email contract).
+#
+# `console` (or blank, or `none`) selects NO external transport: the durable
+# outbox records deliveries and sends nothing. `resend` selects the Resend
+# adapter and REQUIRES RESEND_API_KEY and EMAIL_FROM below; a requested but
+# incomplete configuration fails closed — it never falls back to a console or
+# mock transport, and deliveries simply wait.
+#
+# Selecting `resend` does NOT verify the sender domain. DNS/SPF/DKIM
+# verification must be completed in Resend before real sends can succeed;
+# selecting the provider is not evidence that verification is done.
+#
+# Never commit a real key. Set it as a Worker secret:
+#   npx wrangler secret put RESEND_API_KEY --env staging
 EMAIL_PROVIDER=console
 RESEND_API_KEY=
 EMAIL_FROM="Amped Up Music Promotions <tickets@ampedupmusicpromo.co.uk>"
+# Optional Reply-To. Blank or absent omits the header entirely.
+EMAIL_REPLY_TO=
 
 # AMPED-10A — Cloudflare Turnstile (site key is public, secret key is not)
 PUBLIC_TURNSTILE_SITE_KEY=

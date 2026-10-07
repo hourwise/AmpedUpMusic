@@ -1,15 +1,17 @@
 ---
 /**
- * Ticket email deliveries (AMPED-08C1).
+ * Ticket email deliveries (AMPED-08C1, extended by AMPED-08C2).
  *
  * Read-only visibility for the durable outbox: what is waiting, what will
  * retry, what failed, what is ambiguous, and what a provider has accepted.
+ * The provider column shows non-sensitive evidence only — the provider name
+ * and its message id — never API keys, never credentials.
  *
  * Deliberately NOT a resend console. There is no "send to another address"
  * action, no manual ambiguity resolution and no editing: a delivery is the
- * frozen record of one logical intent, and provider reconciliation arrives
- * with AMPED-08C2. The page answers one question an operator actually asks —
- * "did the confirmation go out for this order?".
+ * frozen record of one logical intent, and provider reconciliation is
+ * orchestrated by the scheduled pass. The page answers one question an
+ * operator actually asks — "did the confirmation go out for this order?".
  *
  * The recipient address is deliberately not shown. The order reference is
  * enough to find the order, and a delivery queue is not a reason to spread
@@ -83,11 +85,12 @@ const label = (map: Record<string, string>, key: string | null): string | null =
     />
   </div>
 
-  <Callout tone="info" label="This build" title="No email provider is connected yet">
+  <Callout tone="info" label="Sending" title="Only an explicitly configured provider sends">
     <p>
-      Deliveries are recorded here but nothing is sent from this build. When the provider is
-      connected, <strong>Accepted</strong> will mean the provider has taken responsibility for the
-      message — not that the customer has read it.
+      Ticket email leaves the building only when the runtime is configured with a provider and a
+      verified sender; otherwise deliveries wait here and nothing is sent. <strong>Accepted</strong>
+      means the provider has taken responsibility for the message — not that the customer has read
+      it. This screen never triggers a send.
     </p>
   </Callout>
 
@@ -98,6 +101,7 @@ const label = (map: Record<string, string>, key: string | null): string | null =
           <tr>
             <th scope="col">Order</th>
             <th scope="col">State</th>
+            <th scope="col">Provider</th>
             <th scope="col" class="num">Attempts</th>
             <th scope="col">Last attempt</th>
             <th scope="col">Next retry</th>
@@ -113,6 +117,18 @@ const label = (map: Record<string, string>, key: string | null): string | null =
                 <Badge tone={STATE_TONE[delivery.state] ?? 'neutral'} size="sm" dot>
                   {label(EMAIL_DELIVERY_STATE_LABEL, delivery.state)}
                 </Badge>
+              </td>
+              <td class="dim">
+                {delivery.provider ? (
+                  <span>
+                    {delivery.provider}
+                    {delivery.providerMessageId ? (
+                      <span class="row-sub mono">{delivery.providerMessageId}</span>
+                    ) : null}
+                  </span>
+                ) : (
+                  '-'
+                )}
               </td>
               <td class="num">{delivery.attemptCount}</td>
               <td class="dim mono">

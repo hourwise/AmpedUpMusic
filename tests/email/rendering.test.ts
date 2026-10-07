@@ -331,16 +331,28 @@ describe('AMPED-08C1 ticket-confirmation rendering', () => {
     expect(summary.accepted).toBe(0);
   });
 
-  it('contains no provider networking and resolves no email transport in this slice', () => {
+  it('selects a transport only through explicit configuration, never a fallback', () => {
+    // AMPED-08C2 added the Resend adapter behind the 08C1 transport contract.
+    // Every module except that adapter remains free of provider knowledge and
+    // network calls, and nothing in the email slice may import Node-only APIs
+    // into the Worker path.
     const emailDir = join(root, 'src', 'services', 'email');
     for (const file of readdirSync(emailDir)) {
       const source = readFileSync(join(emailDir, file), 'utf8');
-      expect(source, file).not.toMatch(/\bfetch\s*\(/);
-      expect(source.toLowerCase(), file).not.toContain('api.resend');
-      expect(source.toLowerCase(), file).not.toContain('resend.com');
+      expect(source, file).not.toMatch(/\bfrom ['"]node:/);
+      expect(source, file).not.toMatch(/\brequire\s*\(/);
+      if (file !== 'resend.ts') {
+        expect(source, file).not.toMatch(/\bfetch\s*\(/);
+      }
     }
+    // The runtime transport comes from ./email/transport-config.ts, which
+    // selects NOTHING for a requested-but-incomplete configuration (fail
+    // closed) instead of falling back to a console or mock transport.
     const index = readFileSync(join(root, 'src', 'services', 'index.ts'), 'utf8');
-    expect(index).toMatch(/export function getEmailTransport\(\): EmailTransport \| null \{\s*return null;/);
+    expect(index).toMatch(/resolveEmailTransport\(/);
+    expect(index).toMatch(
+      /getEmailTransport\(\): EmailTransport \| null \{\s*return emailTransportSelection\(\)\.transport;/,
+    );
     // The idempotency key shape is part of the contract.
     expect(ticketConfirmationIdempotencyKey('ord_x')).toBe('ampedup:ticket-confirmation:v1:ord_x');
   });
